@@ -34,7 +34,7 @@ class KimiProvider(BaseProvider):
             self._navigate_and_wait(page)
             raw_text = self._get_page_text(page)
 
-            window_5h, window_7d, remaining, reset = self._parse_from_text(raw_text)
+            window_5h, window_7d, reset_5h, reset_7d = self._parse_from_text(raw_text)
 
             if window_5h is None or window_7d is None:
                 window_5h, window_7d = self._parse_from_dom(page)
@@ -50,8 +50,8 @@ class KimiProvider(BaseProvider):
                 provider="kimi",
                 window_5h_percent=window_5h or 0.0,
                 window_7d_percent=window_7d or 0.0,
-                remaining_credit=remaining,
-                reset_in=reset,
+                reset_5h=reset_5h,
+                reset_7d=reset_7d,
             )
         finally:
             page.close()
@@ -97,8 +97,8 @@ class KimiProvider(BaseProvider):
     ) -> Tuple[float | None, float | None, str | None, str | None]:
         window_5h: float | None = None
         window_7d: float | None = None
-        remaining_credit: str | None = None
-        reset_in: str | None = None
+        reset_5h: str | None = None
+        reset_7d: str | None = None
 
         # Kimi shows usage in various formats — try Chinese patterns first
         # "5小时使用量: 15%" or "5小时 15%"
@@ -131,17 +131,18 @@ class KimiProvider(BaseProvider):
                 if window_5h is None:
                     window_5h = float(all_pcts[0])
 
-        # Remaining balance / credits
-        m = re.search(r"(?:剩余|余额|剩余额度)\s*[:：]?\s*([^\n]+)", text)
-        if m:
-            remaining_credit = m.group(1).strip()
+        # Reset times: Kimi has two sections.
+        # "本周用量" section → weekly (7d), "频限明细" section → rate limit (5h).
+        # We find all matching reset times and assign by position.
+        all_resets = re.findall(r"(\d+\s*(?:分钟?|小时?|天)\s*(?:后)?\s*(?:重置|到期))", text)
+        if len(all_resets) >= 1:
+            reset_7d = all_resets[0].strip()    # first match = 本周用量 (longer duration)
+        if len(all_resets) >= 2:
+            reset_5h = all_resets[1].strip()    # second match = 频限明细 (shorter duration)
+        elif len(all_resets) == 1:
+            reset_5h = all_resets[0].strip()
 
-        # Reset time
-        m = re.search(r"(?:重置|到期|刷新)\s*[:：]?\s*([^\n]+)", text)
-        if m:
-            reset_in = m.group(1).strip()
-
-        return window_5h, window_7d, remaining_credit, reset_in
+        return window_5h, window_7d, reset_5h, reset_7d
 
     # ------------------------------------------------------------------
     # DOM-based parsing (fallback)

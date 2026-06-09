@@ -200,16 +200,16 @@ Item {
 
                             LabelLine {
                                 Layout.fillWidth: true
-                                visible: provider && provider.remaining_credit !== null && provider.remaining_credit !== undefined && String(provider.remaining_credit).length > 0
-                                label: "剩余额度:"
-                                value: provider && provider.remaining_credit !== null && provider.remaining_credit !== undefined ? String(provider.remaining_credit) : ""
+                                visible: provider && provider.reset_5h !== null && provider.reset_5h !== undefined && String(provider.reset_5h).length > 0
+                                label: "重置(5h):"
+                                value: provider && provider.reset_5h ? String(provider.reset_5h) : ""
                             }
 
                             LabelLine {
                                 Layout.fillWidth: true
-                                visible: provider && provider.reset_in !== null && provider.reset_in !== undefined && String(provider.reset_in).length > 0
-                                label: "重置:"
-                                value: provider && provider.reset_in !== null && provider.reset_in !== undefined ? String(provider.reset_in) : ""
+                                visible: provider && provider.reset_7d !== null && provider.reset_7d !== undefined && String(provider.reset_7d).length > 0
+                                label: "重置(7d):"
+                                value: provider && provider.reset_7d ? String(provider.reset_7d) : ""
                             }
 
                             Controls.Label {

@@ -4,6 +4,7 @@ Manages a completely separate Edge profile inside the project directory
 so that login state is isolated from the user's system browser.
 """
 
+import os
 from pathlib import Path
 
 from playwright.sync_api import BrowserContext, Playwright, sync_playwright
@@ -15,6 +16,52 @@ _USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0"
 )
+
+
+def get_system_timezone() -> str:
+    """Detect the system IANA timezone.
+
+    Tries, in order:
+      1. ``/etc/timezone`` (Debian/Ubuntu)
+      2. ``/etc/localtime`` symlink (most distros)
+      3. ``/usr/share/zoneinfo`` resolution via ``timedatectl``
+    Falls back to ``"UTC"``.
+    """
+    # Debian/Ubuntu
+    try:
+        tz = Path("/etc/timezone").read_text().strip()
+        if tz:
+            return tz
+    except FileNotFoundError:
+        pass
+
+    # /etc/localtime -> /usr/share/zoneinfo/Region/City
+    try:
+        link = os.readlink("/etc/localtime")
+        parts = link.split("/")
+        # walk backwards to find the Region/City pair
+        for i in range(len(parts) - 1, 0, -1):
+            candidate = "/".join(parts[i - 1 : i + 1])
+            if "/" in candidate and not candidate.startswith("zoneinfo"):
+                return candidate
+    except (FileNotFoundError, OSError):
+        pass
+
+    # timedatectl fallback
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["timedatectl", "show", "--value", "--property=Timezone"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            tz = result.stdout.strip()
+            if tz:
+                return tz
+    except Exception:
+        pass
+
+    return "UTC"
 
 
 class ManagedBrowser:
@@ -32,9 +79,11 @@ class ManagedBrowser:
         self,
         headless: bool = True,
         data_dir: Path | None = None,
+        timezone: str | None = None,
     ):
         self.data_dir = data_dir or BROWSER_DATA_DIR
         self.headless = headless
+        self.timezone = timezone or get_system_timezone()
         self._pw: Playwright | None = None
         self._context: BrowserContext | None = None
 
@@ -52,7 +101,7 @@ class ManagedBrowser:
             headless=self.headless,
             user_agent=_USER_AGENT,
             locale="zh-CN",
-            timezone_id="Asia/Shanghai",
+            timezone_id=self.timezone,
             viewport={"width": 1280, "height": 900},
             args=[
                 "--window-size=1280,900",

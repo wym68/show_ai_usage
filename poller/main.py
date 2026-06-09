@@ -60,7 +60,7 @@ def _handle_login(config, provider: str = "codex") -> None:
     print("[1/3] Starting isolated Edge browser (project profile) ...")
     print(f"      Profile: {browser_dir}")
 
-    with ManagedBrowser(headless=False, data_dir=browser_dir) as browser:
+    with ManagedBrowser(headless=False, data_dir=browser_dir, timezone=config.timezone) as browser:
         context = browser.get_context()
         page = context.new_page()
 
@@ -101,7 +101,7 @@ def _poll(provider_names: list[str], config) -> list[dict]:
         return []
 
     results: list[dict] = []
-    with ManagedBrowser(headless=True, data_dir=browser_dir) as browser:
+    with ManagedBrowser(headless=True, data_dir=browser_dir, timezone=config.timezone) as browser:
         context = browser.get_context()
         for provider in providers:
             print(f"  Polling {provider.name} ...", end=" ", flush=True)
@@ -160,7 +160,7 @@ def _handle_debug_dump(provider_names: list[str], config) -> None:
     dump_dir = Path("/tmp/show-ai-usage-debug")
     dump_dir.mkdir(parents=True, exist_ok=True)
 
-    with ManagedBrowser(headless=False, data_dir=browser_dir) as browser:
+    with ManagedBrowser(headless=False, data_dir=browser_dir, timezone=config.timezone) as browser:
         context = browser.get_context()
 
         for provider in providers:
@@ -269,16 +269,16 @@ def _handle_status(config, json_output: bool = False) -> None:
 
         p5 = prov.get("window_5h_percent")
         p7 = prov.get("window_7d_percent")
-        credit = prov.get("remaining_credit")
-        reset = prov.get("reset_in")
+        reset_5h = prov.get("reset_5h")
+        reset_7d = prov.get("reset_7d")
 
         print(f"  {name}")
         print(f"    5h: {p5:.0f}%" if p5 is not None else "    5h: N/A")
         print(f"    7d: {p7:.0f}%" if p7 is not None else "    7d: N/A")
-        if credit is not None:
-            print(f"    剩余额度: {credit}")
-        if reset is not None:
-            print(f"    重置: {reset}")
+        if reset_5h:
+            print(f"    重置(5h): {reset_5h}")
+        if reset_7d:
+            print(f"    重置(7d): {reset_7d}")
         print()
 
 

@@ -35,7 +35,7 @@ class ClaudeProvider(BaseProvider):
             self._navigate_and_wait(page)
             raw_text = self._get_page_text(page)
 
-            window_5h, window_7d, remaining, reset = self._parse_from_text(raw_text)
+            window_5h, window_7d, reset_5h, reset_7d = self._parse_from_text(raw_text)
 
             if window_5h is None or window_7d is None:
                 window_5h, window_7d = self._parse_from_dom(page)
@@ -51,8 +51,8 @@ class ClaudeProvider(BaseProvider):
                 provider="claude",
                 window_5h_percent=window_5h or 0.0,
                 window_7d_percent=window_7d or 0.0,
-                remaining_credit=remaining,
-                reset_in=reset,
+                reset_5h=reset_5h,
+                reset_7d=reset_7d,
             )
         finally:
             page.close()
@@ -62,11 +62,8 @@ class ClaudeProvider(BaseProvider):
     # ------------------------------------------------------------------
 
     def _navigate_and_wait(self, page: Page) -> None:
-        """Navigate to Claude and wait for the real page."""
-        page.goto(CLAUDE_HOME_URL, wait_until="domcontentloaded", timeout=45000)
-        self._wait_for_real_page(page)
-
-        page.goto(CLAUDE_USAGE_URL, wait_until="domcontentloaded", timeout=30000)
+        """Navigate to Claude usage settings page (hash-fragment SPA routing)."""
+        page.goto(CLAUDE_USAGE_URL, wait_until="domcontentloaded", timeout=45000)
         self._wait_for_real_page(page)
 
         page.wait_for_timeout(5000)
@@ -101,10 +98,10 @@ class ClaudeProvider(BaseProvider):
     ) -> Tuple[float | None, float | None, str | None, str | None]:
         window_5h: float | None = None
         window_7d: float | None = None
-        remaining_credit: str | None = None
-        reset_in: str | None = None
+        reset_5h: str | None = None
+        reset_7d: str | None = None
 
-        # Chinese: "5小时" or "5 小时" followed by percentage
+        # Chinese patterns: "5小时" or "5 时" followed by percentage
         m = re.search(
             r"5\s*小?\s*时[^%\n]{0,200}?(\d+\.?\d*)\s*%",
             text,
@@ -122,8 +119,25 @@ class ClaudeProvider(BaseProvider):
         if m:
             window_7d = float(m.group(1))
 
-        # English patterns for Claude UI
-        # "You've used 85% of your requests" or "85% used"
+        # English: "Current session … X% used" → 5h window
+        if window_5h is None:
+            m = re.search(
+                r"Current\s+session.*?(\d+\.?\d*)\s*%\s*used",
+                text, re.DOTALL | re.IGNORECASE,
+            )
+            if m:
+                window_5h = float(m.group(1))
+
+        # English: "Weekly limits … X% used" → 7d window
+        if window_7d is None:
+            m = re.search(
+                r"Weekly\s+limits.*?(\d+\.?\d*)\s*%\s*used",
+                text, re.DOTALL | re.IGNORECASE,
+            )
+            if m:
+                window_7d = float(m.group(1))
+
+        # English legacy: "You've used 85% of your requests" or "used 85%"
         if window_5h is None:
             m = re.search(
                 r"(?:you'?ve\s+used|used)\s+(\d+\.?\d*)\s*%\s*(?:of\s+your\s+)?(?:requests|limit|usage)",
@@ -149,16 +163,19 @@ class ClaudeProvider(BaseProvider):
             elif len(all_pcts) >= 1 and window_5h is None:
                 window_5h = float(all_pcts[0])
 
-        # Remaining / reset info
-        m = re.search(r"(?:剩余|remaining|credits)\s*[:：]?\s*([^\n]+)", text, re.IGNORECASE)
+        # Reset time: weekly "Resets Tue 5:00 AM" (Claude only shows weekly reset)
+        m = re.search(r"Resets?\s+([A-Za-z]+\s+\d+:\d+\s*(?:AM|PM))", text, re.IGNORECASE)
         if m:
-            remaining_credit = m.group(1).strip()
+            reset_7d = m.group(1).strip()
+        # Chinese fallback pattern (if page ever switches locale)
+        if not reset_7d:
+            m = re.search(r"([\d\s天小时分分钟hms]+\s*(?:后)?(?:重置|到期))", text)
+            if m:
+                reset_7d = m.group(1).strip()
+        # Claude doesn't show a separate 5h reset time
+        reset_5h = None
 
-        m = re.search(r"(?:重置|resets?|reset at)\s*[:：]?\s*([^\n]+)", text, re.IGNORECASE)
-        if m:
-            reset_in = m.group(1).strip()
-
-        return window_5h, window_7d, remaining_credit, reset_in
+        return window_5h, window_7d, reset_5h, reset_7d
 
     # ------------------------------------------------------------------
     # DOM-based parsing (fallback)

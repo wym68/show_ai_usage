@@ -34,7 +34,7 @@ class MiniMaxProvider(BaseProvider):
             self._navigate_and_wait(page)
             raw_text = self._get_page_text(page)
 
-            window_5h, window_7d, remaining, reset = self._parse_from_text(raw_text)
+            window_5h, window_7d, reset_5h, reset_7d = self._parse_from_text(raw_text)
 
             if window_5h is None or window_7d is None:
                 window_5h, window_7d = self._parse_from_dom(page)
@@ -50,8 +50,8 @@ class MiniMaxProvider(BaseProvider):
                 provider="minimax",
                 window_5h_percent=window_5h or 0.0,
                 window_7d_percent=window_7d or 0.0,
-                remaining_credit=remaining,
-                reset_in=reset,
+                reset_5h=reset_5h,
+                reset_7d=reset_7d,
             )
         finally:
             page.close()
@@ -97,29 +97,46 @@ class MiniMaxProvider(BaseProvider):
     ) -> Tuple[float | None, float | None, str | None, str | None]:
         window_5h: float | None = None
         window_7d: float | None = None
-        remaining_credit: str | None = None
-        reset_in: str | None = None
+        reset_5h: str | None = None
+        reset_7d: str | None = None
 
-        # Chinese patterns for MiniMax
-        # "5小时" or "5小时使用量" followed by percentage
+        # MiniMax page layout (Chinese):
+        #   5h 限额         ← section label
+        #   26 分钟后重置    ← reset countdown
+        #   总额度 100%     ← total quota (NOT usage)
+        #   已用 0%         ← actual USAGE (relative to 总额度)
+        #
+        #   周限额
+        #   4 天 19 小时后重置
+        #   总额度 150%
+        #   已用 54%        ← 54% of 150%, need to normalize to 100% scale
+        #
+        # Strategy: extract both (总额度, 已用) for each section,
+        # then normalize: normalized% = 已用 / 总额度 * 100
+
+        # 5h usage: extract total quota and used, then normalize
         m = re.search(
-            r"5\s*小?\s*时[^%\n]{0,200}?(\d+\.?\d*)\s*%",
+            r"5\s*(?:小?\s*时|h)\s*限额.*?总额度\s*(\d+\.?\d*)\s*%.*?已用\s*(\d+\.?\d*)\s*%",
             text,
             re.DOTALL,
         )
         if m:
-            window_5h = float(m.group(1))
+            total_5h = float(m.group(1))
+            used_5h = float(m.group(2))
+            window_5h = used_5h * 100.0 / total_5h
 
-        # "7天" or "本周" or "周额度"
+        # 7d / weekly usage: same approach with normalization
         m = re.search(
-            r"(?:7天|本周|周额度|每周)[^%\n]{0,200}?(\d+\.?\d*)\s*%",
+            r"周\s*限额.*?总额度\s*(\d+\.?\d*)\s*%.*?已用\s*(\d+\.?\d*)\s*%",
             text,
             re.DOTALL,
         )
         if m:
-            window_7d = float(m.group(1))
+            total_7d = float(m.group(1))
+            used_7d = float(m.group(2))
+            window_7d = used_7d * 100.0 / total_7d
 
-        # English fallback patterns (MiniMax platform may have English UI)
+        # English patterns (if MiniMax ever shows English UI)
         if window_5h is None:
             m = re.search(
                 r"(?:5.?hour|last\s+5\s+hours?)[^%\n]{0,200}?(\d+\.?\d*)\s*%",
@@ -138,7 +155,7 @@ class MiniMaxProvider(BaseProvider):
             if m:
                 window_7d = float(m.group(1))
 
-        # Generic fallback: any two X% values
+        # Generic fallback: any two X% values (least preferred)
         if window_5h is None or window_7d is None:
             all_pcts = re.findall(r"(\d+\.?\d*)\s*%", text)
             if len(all_pcts) >= 2:
@@ -149,17 +166,22 @@ class MiniMaxProvider(BaseProvider):
             elif len(all_pcts) >= 1 and window_5h is None:
                 window_5h = float(all_pcts[0])
 
-        # Remaining credits
-        m = re.search(r"(?:剩余|余额|剩余额度|credits?)\s*[:：]?\s*([^\n]+)", text, re.IGNORECASE)
-        if m:
-            remaining_credit = m.group(1).strip()
+        # Reset times: MiniMax sections show countdowns like
+        # "14 分钟后重置" and "4 天 19 小时后重置" (compound duration).
+        # Capture from first digit through to "重置" to get full duration.
+        all_resets = re.findall(r"(\d[\d\s天小时分分钟hms]*\s*(?:后)?\s*(?:重置|到期))", text)
+        if len(all_resets) >= 1:
+            reset_5h = all_resets[0].strip()    # first = 5h reset (shorter)
+        if len(all_resets) >= 2:
+            reset_7d = all_resets[1].strip()    # second = weekly (longer, may be compound)
 
-        # Reset time
-        m = re.search(r"(?:重置|到期|刷新|resets?)\s*[:：]?\s*([^\n]+)", text, re.IGNORECASE)
-        if m:
-            reset_in = m.group(1).strip()
+        # Fallback for non-countdown format
+        if not reset_5h and not reset_7d:
+            m = re.search(r"(?:重置|到期|刷新|resets?)\s*[:：]?\s*([^\n]+)", text, re.IGNORECASE)
+            if m:
+                reset_5h = m.group(1).strip()
 
-        return window_5h, window_7d, remaining_credit, reset_in
+        return window_5h, window_7d, reset_5h, reset_7d
 
     # ------------------------------------------------------------------
     # DOM-based parsing (fallback)

@@ -42,6 +42,12 @@ class Config(BaseModel):
         description="List of enabled provider IDs.",
     )
 
+    # ── Locale ──────────────────────────────────────────────────────
+    timezone: str = Field(
+        default="",  # empty = auto-detect from system
+        description="IANA timezone ID (e.g. 'Europe/Brussels'). Empty = auto-detect from system.",
+    )
+
     # ── Paths ────────────────────────────────────────────────────────
     data_dir: str = Field(
         default=str(_DATA_DIR_DEFAULT),
@@ -121,6 +127,11 @@ enabled_providers = ["codex", "claude", "kimi", "minimax"]
 # Isolated browser profile directory.
 # Empty string means the project default (project/browser-data/).
 # browser_data_dir = ""
+
+[locale]
+# Browser timezone (IANA ID, e.g. "Europe/Brussels").
+# Empty = auto-detect from system timezone.
+# timezone = "Europe/Brussels"
 """
     CONFIG_FILE.write_text(content)
     return CONFIG_FILE

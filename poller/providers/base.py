@@ -17,11 +17,11 @@ class UsageData(BaseModel):
     window_7d_percent: float = Field(
         ge=0.0, le=100.0, description="Usage in the 7-day rolling window (0–100)."
     )
-    remaining_credit: str | None = Field(
-        default=None, description="Remaining credits / balance text, e.g. '$150.00'."
+    reset_5h: str | None = Field(
+        default=None, description="5-hour window reset time, e.g. '4h 12m' or '9:25'."
     )
-    reset_in: str | None = Field(
-        default=None, description="Time until window reset, e.g. '4h 12m'."
+    reset_7d: str | None = Field(
+        default=None, description="7-day / weekly window reset time, e.g. '2026年6月12日 21:14'."
     )
     fetched_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),

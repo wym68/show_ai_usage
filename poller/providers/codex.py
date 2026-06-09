@@ -35,7 +35,7 @@ class CodexProvider(BaseProvider):
             self._navigate_and_wait(page)
             raw_text = self._get_page_text(page)
 
-            window_5h, window_7d, remaining, reset = self._parse_from_text(raw_text)
+            window_5h, window_7d, reset_5h, reset_7d = self._parse_from_text(raw_text)
 
             if window_5h is None or window_7d is None:
                 window_5h, window_7d = self._parse_from_dom(page)
@@ -47,12 +47,16 @@ class CodexProvider(BaseProvider):
                     "Run with `--debug` to dump the page content for analysis."
                 )
 
+            # Codex page shows remaining % (标注"剩余"), convert to used %
+            window_5h = 100.0 - window_5h
+            window_7d = 100.0 - window_7d
+
             return UsageData(
                 provider="codex",
                 window_5h_percent=window_5h,
                 window_7d_percent=window_7d,
-                remaining_credit=remaining,
-                reset_in=reset,
+                reset_5h=reset_5h,
+                reset_7d=reset_7d,
             )
         finally:
             page.close()
@@ -105,8 +109,8 @@ class CodexProvider(BaseProvider):
     ) -> Tuple[float | None, float | None, str | None, str | None]:
         window_5h: float | None = None
         window_7d: float | None = None
-        remaining_credit: str | None = None
-        reset_in: str | None = None
+        reset_5h: str | None = None
+        reset_7d: str | None = None
 
         # 5-hour usage: "5 小时使用限额" followed by "99%"
         m = re.search(
@@ -117,8 +121,7 @@ class CodexProvider(BaseProvider):
         if m:
             window_5h = float(m.group(1))
 
-        # Weekly usage: "每周使用限额" followed by "0%"  (NOT "7天" —
-        # that also appears in the time-range selector at the top)
+        # Weekly usage: "每周使用限额" followed by "0%"
         m = re.search(
             r"每周[^%]{0,200}?(\d+\.?\d*)\s*%",
             text,
@@ -127,19 +130,14 @@ class CodexProvider(BaseProvider):
         if m:
             window_7d = float(m.group(1))
 
-        # Remaining credit: the number after "剩余额度" (may be separated by newlines)
-        m = re.search(r"剩余额度[^0-9]*?(\d+[\d,.]*)", text)
-        if m:
-            remaining_credit = m.group(1)
-
-        # 7d reset time (the second "重置时间" on the page)
+        # Reset times: first "重置时间" = 5h, second = 7d/weekly
         all_resets = re.findall(r"重置时间[：:]\s*([^\n]+)", text)
+        if len(all_resets) >= 1:
+            reset_5h = all_resets[0].strip()
         if len(all_resets) >= 2:
-            reset_in = all_resets[1].strip()
-        elif all_resets:
-            reset_in = all_resets[0].strip()
+            reset_7d = all_resets[1].strip()
 
-        return window_5h, window_7d, remaining_credit, reset_in
+        return window_5h, window_7d, reset_5h, reset_7d
 
     # ------------------------------------------------------------------
     # DOM-based parsing (fallback)
