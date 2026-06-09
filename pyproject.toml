@@ -1,0 +1,17 @@
+[project]
+name = "show-ai-usage"
+version = "0.1.0"
+description = "KDE Plasma 6 widget for AI subscription usage monitoring"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["playwright>=1.60", "pydantic>=2.0"]
+
+[project.scripts]
+show-ai-usage-poller = "poller.main:cli"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]

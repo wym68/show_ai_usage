@@ -1,0 +1,35 @@
+# ── Python ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+
+# ── Virtual environment ─────────────────────────────────────────
+.venv/
+
+# ── Project: Isolated browser profile (contains cookies, sessions) ──
+browser-data/
+
+# ── Project: Debug dumps ────────────────────────────────────────
+debug-dumps/
+
+# ── IDE / Editor ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── OS ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Environment files (if any) ──────────────────────────────────
+.env
+.env.*
+!.env.example
