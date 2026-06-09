@@ -122,6 +122,9 @@ def _poll(provider_names: list[str], config) -> list[dict]:
                     }
                 )
                 print(f"✗  {exc}")
+            # Small delay between providers to let Playwright fully clean up pages
+            import time as _time
+            _time.sleep(1)
     return results
 
 

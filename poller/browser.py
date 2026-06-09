@@ -69,6 +69,15 @@ class ManagedBrowser:
     def close(self) -> None:
         if self._context is not None:
             try:
+                # Close all remaining pages first to prevent "browser closed" warnings
+                for page in self._context.pages:
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
                 self._context.close()
             except Exception:
                 pass

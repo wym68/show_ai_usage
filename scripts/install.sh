@@ -49,6 +49,11 @@ echo ""
 echo "[3/5] Installing systemd user units ..."
 mkdir -p "$SYSTEMD_DIR"
 
+# Remove old symlinks / files before installing to prevent accidental overwrite of the template
+rm -f "$SYSTEMD_DIR/show-ai-usage.service"
+rm -f "$SYSTEMD_DIR/show-ai-usage.timer"
+
+# Substitute the project directory placeholder and install a regular file (not a symlink)
 sed "s|@@PROJECT_DIR@@|$PROJECT_DIR|g" \
     "$PROJECT_DIR/systemd/show-ai-usage.service" \
     > "$SYSTEMD_DIR/show-ai-usage.service"
