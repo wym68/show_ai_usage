@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls as Controls
 import org.kde.plasma.core as PlasmaCore
 import org.kde.kirigami as Kirigami
 
@@ -10,11 +9,6 @@ Item {
     property var providers: []
     property string errorMessage: ""
 
-    // ── Sizing ────────────────────────────────────────────────
-    // implicitWidth/Height are based solely on gridUnit (a theme constant fixed at startup).
-    // Dynamic values (height, providers.length) must NOT drive implicitWidth — Plasma panels
-    // evaluate it once at widget init and lock in the allocated space; if it starts at 0
-    // and grows later the panel won't re-expand the widget.
     readonly property real _pillH: Kirigami.Units.gridUnit * 1.4
     readonly property real _gap: Kirigami.Units.smallSpacing
 
@@ -31,9 +25,7 @@ Item {
         return _val(p, "window_7d_percent") > 85
             ? _val(p, "window_7d_percent") : _val(p, "window_5h_percent")
     }
-    function _is7d(p) {
-        return _val(p, "window_7d_percent") > 85
-    }
+    function _is7d(p) { return _val(p, "window_7d_percent") > 85 }
     function _color(v) {
         return v >= 95 ? "#F44336" : v >= 80 ? "#FF9800" : v >= 50 ? "#FFC107" : "#4CAF50"
     }
@@ -41,14 +33,9 @@ Item {
         var m = {"codex":"C", "claude":"D", "kimi":"K", "minimax":"M"}
         return p && p.provider ? (m[p.provider] || "?") : "?"
     }
-    function _fullName(p) {
-        var m = {"codex":"OpenAI Codex", "claude":"Claude Code", "kimi":"Kimi", "minimax":"MiniMax"}
-        return p && p.provider ? (m[p.provider] || p.provider) : "未知服务"
-    }
 
-    // ── Content ───────────────────────────────────────────────
+    // ── Pills ─────────────────────────────────────────────────
     RowLayout {
-        id: pillRow
         anchors.centerIn: parent
         width: root.width > 0 ? root.width : root.implicitWidth
         height: root._pillH
@@ -59,8 +46,6 @@ Item {
             model: root.providers || []
 
             Rectangle {
-                id: pill
-
                 readonly property var _prov: modelData
                 readonly property real _val: root._dispVal(_prov)
                 readonly property bool _is7d: root._is7d(_prov)
@@ -68,12 +53,9 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: root._pillH
                 radius: height / 2
-
-                // Base: usage color
                 color: root._color(_val)
                 opacity: 0.9
 
-                // Unused overlay
                 Rectangle {
                     anchors.right: parent.right
                     anchors.top: parent.top
@@ -84,7 +66,6 @@ Item {
                     opacity: 0.4
                 }
 
-                // Provider + Percentage label
                 Text {
                     anchors.centerIn: parent
                     text: root._label(parent._prov) + "  " + Math.round(parent._val) + "%"
@@ -95,7 +76,6 @@ Item {
                     styleColor: "black"
                 }
 
-                // 7d dot (top-right corner)
                 Rectangle {
                     anchors.right: parent.right; anchors.top: parent.top
                     anchors.margins: 1
@@ -104,26 +84,6 @@ Item {
                     color: "#FFFFFF"
                     border.color: "black"
                     border.width: 1
-                }
-
-                // Tooltip
-                MouseArea {
-                    id: _mouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    onPressed: mouse.accepted = false
-                    onReleased: mouse.accepted = false
-                }
-                Controls.ToolTip {
-                    parent: pill
-                    visible: _mouse.containsMouse
-                    delay: 500
-                    timeout: 5000
-                    text: _prov && _prov.error
-                        ? root._fullName(_prov) + ": " + _prov.error
-                        : root._fullName(_prov) + " "
-                          + (root._is7d(_prov) ? "7d" : "5h") + ": "
-                          + Math.round(root._dispVal(_prov)) + "%"
                 }
             }
         }
@@ -136,20 +96,5 @@ Item {
         text: root.errorMessage ? "N/A" : "⋯"
         color: Kirigami.Theme.textColor
         font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
-
-        MouseArea {
-            id: _emptyMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            onPressed: mouse.accepted = false
-            onReleased: mouse.accepted = false
-        }
-        Controls.ToolTip {
-            parent: parent
-            visible: _emptyMouse.containsMouse
-            delay: 500
-            timeout: 5000
-            text: root.errorMessage || "等待数据…"
-        }
     }
 }

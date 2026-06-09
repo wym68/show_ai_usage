@@ -26,7 +26,11 @@
       "Bash(echo \"plasmashell restarting, PID: $!\")",
       "Bash(echo \"plasmashell restarted, PID: $!\")",
       "Bash(echo \"restarted: $!\")",
-      "Bash(echo \"done: $!\")"
+      "Bash(echo \"done: $!\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(kpackagetool6 --type Plasma/Applet --upgrade /home/minifive/own_work/show_ai_usage_v2/package/)",
+      "Bash(disown)",
+      "Read(//usr/**)"
     ],
     "additionalDirectories": [
       "/home/minifive/.local/share/plasma/plasmoids/showaiusage/contents/ui"

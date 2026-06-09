@@ -18,6 +18,31 @@ PlasmoidItem {
     property var usageData: ({ "providers": [] })
     property var providers: usageData && usageData.providers ? usageData.providers : []
     property string errorMessage: ""
+
+    // Override the default metadata tooltip (applet name + description) with live usage data.
+    // Plasma Shell renders this tooltip outside the panel bounds — no flickering, correct position.
+    toolTipMainText: "AI 用量"
+    toolTipTextFormat: Text.RichText
+    toolTipSubText: {
+        if (!providers || providers.length === 0)
+            return errorMessage || "等待数据…"
+        return providers.map(function(p) {
+            var name = _tipName(p)
+            if (p.error) return "<b>" + name + "</b>: " + p.error
+            var v5h = Math.round(Number(p.window_5h_percent) || 0)
+            var v7d = Math.round(Number(p.window_7d_percent) || 0)
+            var r5h = p.reset_5h || "–"
+            var r7d = p.reset_7d || "–"
+            return "<b>" + name + "</b><br/>"
+                 + "5小时: " + v5h + "%&nbsp;&nbsp;" + r5h + "<br/>"
+                 + "7天:&nbsp;&nbsp;&nbsp;&nbsp;" + v7d + "%&nbsp;&nbsp;" + r7d
+        }).join("<br/>")
+    }
+
+    function _tipName(p) {
+        var m = {"codex":"OpenAI Codex", "claude":"Claude Code", "kimi":"Kimi", "minimax":"MiniMax"}
+        return p && p.provider ? (m[p.provider] || p.provider) : "未知服务"
+    }
     // StandardPaths.writableLocation returns a file:// URL like "file:///home/user/.local/share"
     readonly property string dataFileUrl: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/show-ai-usage/data.json"
     // Bare filesystem path for shell commands (strip file:// prefix)
