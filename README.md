@@ -890,6 +890,64 @@ re.search(r"(\d+\s*(?:分钟?|小时?|天)\s*(?:后)?\s*(?:重置|到期))", tex
 
 ## 开发指南
 
+### Plasmoid 面板布局陷阱
+
+在 Plasma 6 面板中调整 CompactRepresentation 尺寸时，有三个常见陷阱：
+
+#### 1. Layout 属性必须加在 `PlasmoidItem`，而不是 CompactRepresentation 内部
+
+面板的布局引擎（RowLayout）直接管理的是 `PlasmoidItem`，而不是 CompactRepresentation 的根 Item。
+
+```qml
+// ✅ 正确：加在 main.qml 的 PlasmoidItem 上
+PlasmoidItem {
+    Layout.minimumWidth:  4 * Kirigami.Units.gridUnit * 3 + 3 * Kirigami.Units.smallSpacing
+    Layout.preferredWidth: 4 * Kirigami.Units.gridUnit * 4 + 3 * Kirigami.Units.smallSpacing
+    ...
+}
+
+// ❌ 无效：加在 CompactRepresentation.qml 的根 Item 上
+Item {
+    Layout.minimumWidth: ...   // 这一层不是面板 RowLayout 的直接子节点，面板忽略它
+}
+```
+
+CompactRepresentation 的根 Item 上的 `Layout.*` 属性只作用于其父容器（Plasma 内部的 Loader/AppletItem），不会直接传递给面板的 RowLayout。`implicitWidth` 才会被 Plasma 内部机制传播，但 `Layout.minimumWidth` 等必须在 `PlasmoidItem` 一级设置。
+
+#### 2. `implicitWidth` 必须是静态值，不能依赖运行时变量
+
+Plasma 面板在 **小部件首次加载时** 评估 `implicitWidth`，并据此为其分配面板空间。如果此时 `implicitWidth` 依赖的变量还是初始值（如 `providers.length = 0` 或 `height = 0`），面板会锁定一个很小的宽度。**后续 `implicitWidth` 发生变化时，面板通常不会重新布局**。
+
+```qml
+// ❌ 错误：依赖 providers.length（初始为 0 → implicitWidth = 0 → 面板分配 0px）
+implicitWidth: providers.length * _pillW + ...
+
+// ❌ 错误：依赖 height（初始为 0 → _pillH = 0 → implicitWidth = 0）
+readonly property real _pillH: height * 0.72
+implicitWidth: 4 * _pillH * 3.2 + ...
+
+// ✅ 正确：只用主题常量（gridUnit、smallSpacing 在 QML 启动时即固定）
+implicitWidth: 4 * Kirigami.Units.gridUnit * 4 + 3 * Kirigami.Units.smallSpacing
+```
+
+`Kirigami.Units.gridUnit` 和 `Kirigami.Units.smallSpacing` 来自主题，在 QML 引擎启动时即为固定值，可以安全地用于 `implicitWidth`。
+
+#### 3. 修改 QML 文件后需重启 plasmashell
+
+Plasma 在启动时将 QML 文件编译缓存，运行期间**不会热重载**。
+
+```bash
+# 1. 升级已安装的 Plasmoid（从 package/ 目录同步到 ~/.local/share/plasma/plasmoids/）
+kpackagetool6 --type Plasma/Applet --upgrade package/
+
+# 2. 重启 plasmashell 使新 QML 生效
+plasmashell --replace &
+```
+
+如果跳过第二步，即使文件已更新，运行中的 plasmashell 仍在使用旧的编译缓存，改动不会有任何效果。
+
+---
+
 ### 调试 Provider 的页面结构
 
 ```bash
