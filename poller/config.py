@@ -109,7 +109,7 @@ def init_default_config() -> Path:
 # Interval between polls when running in --daemon mode (seconds, min 30).
 interval = 300
 
-# List of providers to poll.  Currently available: "codex"
+# List of providers to poll.  Available: "codex", "claude", "kimi", "minimax"
 # When adding new providers, add their IDs here.
 enabled_providers = ["codex"]
 

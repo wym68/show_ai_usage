@@ -11,10 +11,16 @@ _registry: dict[str, type[BaseProvider]] | None = None
 def _get_registry() -> dict[str, type[BaseProvider]]:
     global _registry
     if _registry is None:
+        from poller.providers.claude import ClaudeProvider
         from poller.providers.codex import CodexProvider
+        from poller.providers.kimi import KimiProvider
+        from poller.providers.minimax import MiniMaxProvider
 
         _registry = {
             "codex": CodexProvider,
+            "claude": ClaudeProvider,
+            "kimi": KimiProvider,
+            "minimax": MiniMaxProvider,
         }
     return _registry
 

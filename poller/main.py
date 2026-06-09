@@ -32,6 +32,14 @@ def _print_banner() -> None:
     print("  AI Subscription Usage Monitor for KDE Plasma 6\n")
 
 
+LOGIN_URLS: dict[str, str] = {
+    "codex":   "https://chatgpt.com",
+    "claude":  "https://claude.ai",
+    "kimi":    "https://www.kimi.com",
+    "minimax": "https://platform.minimaxi.com",
+}
+
+
 def _get_browser_data_dir(config_path: str) -> Path:
     """Resolve the effective browser data directory from config or default."""
     if config_path:
@@ -39,8 +47,15 @@ def _get_browser_data_dir(config_path: str) -> Path:
     return BROWSER_DATA_DIR
 
 
-def _handle_login(config) -> None:
-    """Open the isolated browser for manual login to providers."""
+def _handle_login(config, provider: str = "codex") -> None:
+    """Open the isolated browser for manual login to a provider."""
+    login_url = LOGIN_URLS.get(provider)
+    if not login_url:
+        print(f"✗ Unknown provider '{provider}'. Available: {', '.join(sorted(LOGIN_URLS))}")
+        return
+
+    display_name = {"codex": "OpenAI Codex", "claude": "Claude", "kimi": "Kimi", "minimax": "MiniMax"}
+
     browser_dir = _get_browser_data_dir(config.browser_data_dir)
     print("[1/3] Starting isolated Edge browser (project profile) ...")
     print(f"      Profile: {browser_dir}")
@@ -49,38 +64,25 @@ def _handle_login(config) -> None:
         context = browser.get_context()
         page = context.new_page()
 
-        print("\n[2/3] Navigating to ChatGPT ...")
+        print(f"\n[2/3] Navigating to {login_url} ...")
         page.goto(
-            "https://chatgpt.com",
+            login_url,
             wait_until="domcontentloaded",
             timeout=30000,
         )
         page.wait_for_timeout(2000)
 
-        print("\n╔══════════════════════════════════════════════════════════════╗")
-        print("║  Please log in to ChatGPT / Codex in the browser window.    ║")
-        print("║  This profile is completely isolated from your system       ║")
-        print("║  browser — nothing is shared.                              ║")
-        print("║                                                            ║")
-        print("║  Once logged in, come back here and press [Enter] to save.  ║")
-        print("╚══════════════════════════════════════════════════════════════╝")
+        print(f"\n╔══════════════════════════════════════════════════════════════╗")
+        print(f"║  Please log in to {display_name.get(provider, provider)} in the browser window.  ║")
+        print(f"║  This profile is completely isolated from your system       ║")
+        print(f"║  browser — nothing is shared.                              ║")
+        print(f"║                                                            ║")
+        print(f"║  Once logged in, come back here and press [Enter] to save.  ║")
+        print(f"╚══════════════════════════════════════════════════════════════╝")
         input()
 
-        current_url = page.url
-        page_text = page.evaluate("document.body?.innerText || ''")
-
-        login_indicators = ["Log in", "log in", "Sign up", "sign up", "Login", "login"]
-        is_logged_in = not any(
-            indicator in page_text[:500] for indicator in login_indicators
-        ) and "chatgpt.com" in current_url
-
         page.close()
-
-        if is_logged_in:
-            print("\n[3/3] ✓ Login detected. Profile saved.\n")
-        else:
-            print("\n[3/3] ⚠ Could not confirm login. Profile saved anyway —")
-            print("      you can re-run `--login` or try `--oneshot` to test.\n")
+        print(f"\n[3/3] ✓ Profile saved. You can now run `--oneshot --providers {provider}`.\n")
 
 
 def _poll(provider_names: list[str], config) -> list[dict]:
@@ -143,7 +145,10 @@ def _handle_debug_dump(provider_names: list[str], config) -> None:
         sys.exit(1)
 
     PROVIDER_URLS: dict[str, str] = {
-        "codex": "https://chatgpt.com/codex/cloud/settings/analytics",
+        "codex":   "https://chatgpt.com/codex/cloud/settings/analytics",
+        "claude":  "https://claude.ai/new#settings/usage",
+        "kimi":    "https://www.kimi.com/code/console",
+        "minimax": "https://platform.minimaxi.com/console/usage",
     }
 
     from poller.providers import get_enabled_providers
@@ -282,8 +287,12 @@ def cli() -> None:
     )
     parser.add_argument(
         "--login",
-        action="store_true",
-        help="Open the isolated browser for manual login to providers.",
+        type=str,
+        nargs="?",
+        const="codex",
+        default=None,
+        metavar="PROVIDER",
+        help="Open the isolated browser for manual login. Optionally specify a provider: codex, claude, kimi, minimax (default: codex).",
     )
     parser.add_argument(
         "--oneshot",
@@ -360,7 +369,7 @@ def cli() -> None:
 
     # ── Dispatch ──────────────────────────────────────────────────
     if args.login:
-        _handle_login(cfg)
+        _handle_login(cfg, provider=args.login)
         return
 
     if args.debug:
