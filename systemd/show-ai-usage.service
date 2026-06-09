@@ -1,0 +1,11 @@
+[Unit]
+Description=Show AI Usage — Poll subscription usage data
+Documentation=https://github.com/your/project
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/minifive/own_work/show_ai_usage_v2/.venv/bin/python /home/minifive/own_work/show_ai_usage_v2/poller/main.py --oneshot
+WorkingDirectory=/home/minifive/own_work/show_ai_usage_v2
+User=%u

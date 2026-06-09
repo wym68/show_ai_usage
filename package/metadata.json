@@ -1,0 +1,20 @@
+{
+  "KPackageStructure": "Plasma/Applet",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "show-ai-usage contributors"
+      }
+    ],
+    "Category": "Utilities",
+    "Description": "Monitor local AI coding subscription usage from the poller JSON cache.",
+    "EnabledByDefault": true,
+    "Icon": "utilities-system-monitor",
+    "Id": "showaiusage",
+    "License": "MIT",
+    "Name": "AI Usage Monitor",
+    "Version": "0.1.0"
+  },
+  "X-Plasma-API": "declarativeappletscript",
+  "X-Plasma-MainScript": "ui/main.qml"
+}
