@@ -27,6 +27,7 @@ def _get_registry() -> dict[str, type[BaseProvider]]:
 
 def get_enabled_providers(
     names: Sequence[str] | None = None,
+    timezone_id: str = "UTC",
 ) -> list[BaseProvider]:
     """Return a list of provider instances.
 
@@ -37,9 +38,9 @@ def get_enabled_providers(
 
     if names:
         selected = {n.lower(): n for n in names}
-        return [reg[name]() for name in selected if name in reg]
+        return [reg[name](timezone_id=timezone_id) for name in selected if name in reg]
 
-    return [cls() for cls in reg.values()]
+    return [cls(timezone_id=timezone_id) for cls in reg.values()]
 
 
 def list_available_providers() -> list[str]:

@@ -10,124 +10,129 @@ Item {
     property var providers: []
     property string errorMessage: ""
 
-    implicitWidth: providers && providers.length > 0
-        ? Math.max(Kirigami.Units.gridUnit * 3, compactRow.implicitWidth)
-        : Kirigami.Units.gridUnit * 2
-    implicitHeight: Kirigami.Units.gridUnit
+    // ── Sizing ────────────────────────────────────────────────
+    readonly property real _pillW: Kirigami.Units.gridUnit * 3.5
+    readonly property real _pillH: Kirigami.Units.gridUnit * 1.0
+    readonly property real _gap: Kirigami.Units.smallSpacing
+    // Fixed width based on max 4 providers — Plasma panel locks widget size at startup,
+    // so dynamic recalculation when data loads causes truncation.
+    readonly property real _totalW: 4 * _pillW + 3 * _gap
 
-    function value5h(provider) {
-        var v = Number(provider && provider.window_5h_percent)
+    implicitWidth: _totalW
+    implicitHeight: _pillH
+    Layout.minimumWidth: _totalW
+    Layout.preferredWidth: _totalW
+    Layout.maximumWidth: _totalW
+    clip: true
+
+    // ── Helpers ───────────────────────────────────────────────
+    function _val(p, key) {
+        var v = Number(p && p[key])
         return isNaN(v) ? 0 : Math.max(0, Math.min(100, v))
     }
-
-    function value7d(provider) {
-        var v = Number(provider && provider.window_7d_percent)
-        return isNaN(v) ? 0 : Math.max(0, Math.min(100, v))
+    function _dispVal(p) {
+        return _val(p, "window_7d_percent") > 85
+            ? _val(p, "window_7d_percent") : _val(p, "window_5h_percent")
+    }
+    function _is7d(p) {
+        return _val(p, "window_7d_percent") > 85
+    }
+    function _color(v) {
+        return v >= 95 ? "#F44336" : v >= 80 ? "#FF9800" : v >= 50 ? "#FFC107" : "#4CAF50"
+    }
+    function _label(p) {
+        var m = {"codex":"C", "claude":"D", "kimi":"K", "minimax":"M"}
+        return p && p.provider ? (m[p.provider] || "?") : "?"
+    }
+    function _fullName(p) {
+        var m = {"codex":"OpenAI Codex", "claude":"Claude Code", "kimi":"Kimi", "minimax":"MiniMax"}
+        return p && p.provider ? (m[p.provider] || p.provider) : "未知服务"
     }
 
-    // Show 7d usage when it exceeds 85%, otherwise show 5h
-    function displayPercent(provider) {
-        var v7 = root.value7d(provider)
-        if (v7 > 85) {
-            return v7
-        }
-        return root.value5h(provider)
-    }
-
-    // True when the displayed value is the 7d window
-    function showing7d(provider) {
-        return root.value7d(provider) > 85
-    }
-
-    function usageColor(value) {
-        if (value >= 95) {
-            return "#F44336"
-        }
-        if (value >= 80) {
-            return "#FF9800"
-        }
-        if (value >= 50) {
-            return "#FFC107"
-        }
-        return "#4CAF50"
-    }
-
-    function providerName(provider) {
-        return provider && provider.provider ? provider.provider : "未知服务"
-    }
-
-    function displayName(provider) {
-        switch (provider && provider.provider) {
-            case "codex":    return "OpenAI Codex"
-            case "claude":   return "Claude Code"
-            case "kimi":     return "Kimi"
-            case "minimax":  return "MiniMax"
-            default:         return provider && provider.provider || "未知服务"
-        }
-    }
-
+    // ── Content ───────────────────────────────────────────────
     RowLayout {
-        id: compactRow
+        id: pillRow
         anchors.centerIn: parent
-        spacing: Kirigami.Units.smallSpacing
+        width: root.width
+        height: root._pillH
+        spacing: root._gap
         visible: root.providers && root.providers.length > 0
 
         Repeater {
             model: root.providers || []
 
             Rectangle {
-                id: meter
+                id: pill
 
-                readonly property var provider: modelData
-                readonly property real displayVal: root.displayPercent(provider)
-                readonly property bool is7d: root.showing7d(provider)
+                readonly property var _prov: modelData
+                readonly property real _val: root._dispVal(_prov)
+                readonly property bool _is7d: root._is7d(_prov)
 
-                Layout.preferredWidth: is7d ? Kirigami.Units.gridUnit * 1.6 : Kirigami.Units.gridUnit
-                Layout.preferredHeight: Math.max(Kirigami.Units.smallSpacing, Kirigami.Units.gridUnit * 0.35)
+                Layout.fillWidth: true
+                Layout.preferredHeight: root._pillH
                 radius: height / 2
-                color: Kirigami.Theme.disabledTextColor
-                opacity: provider && provider.error ? 0.65 : 1
 
-                // Filled portion of the bar
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: Math.max(parent.height, parent.width * meter.displayVal / 100)
-                    radius: parent.radius
-                    color: provider && provider.error ? "#F44336" : root.usageColor(meter.displayVal)
-                }
+                // Base: usage color
+                color: root._color(_val)
+                opacity: 0.9
 
-                // 7d indicator dot/line when showing weekly usage
+                // Unused overlay
                 Rectangle {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    anchors.margins: 1
-                    width: parent.height * 0.5
-                    radius: width / 2
-                    visible: meter.is7d
-                    color: "transparent"
-                    border.width: 1
-                    border.color: "white"
+                    width: parent.width * (100 - parent._val) / 100
+                    radius: parent.radius
+                    color: Kirigami.Theme.backgroundColor
+                    opacity: 0.4
                 }
 
+                // Provider + Percentage label
+                Text {
+                    anchors.centerIn: parent
+                    text: root._label(parent._prov) + " " + Math.round(parent._val) + "%"
+                    color: "white"
+                    font.pixelSize: Math.max(7, Math.round(parent.height * 0.42))
+                    font.bold: true
+                    style: Text.Outline
+                    styleColor: "black"
+                }
+
+                // 7d dot (top-right corner)
+                Rectangle {
+                    anchors.right: parent.right; anchors.top: parent.top
+                    anchors.margins: 1
+                    width: 4; height: 4; radius: 2
+                    visible: parent._is7d
+                    color: "#FFFFFF"
+                    border.color: "black"
+                    border.width: 1
+                }
+
+                // Tooltip
                 MouseArea {
-                    id: hoverArea
+                    id: _mouse
                     anchors.fill: parent
                     hoverEnabled: true
+                    onPressed: mouse.accepted = false
+                    onReleased: mouse.accepted = false
                 }
-
-                Controls.ToolTip.visible: hoverArea.containsMouse
-                Controls.ToolTip.text: provider && provider.error
-                    ? root.displayName(provider) + ": " + provider.error
-                    : root.displayName(provider) + " "
-                      + (meter.is7d ? "7d" : "5h") + ": "
-                      + Math.round(meter.displayVal) + "%"
+                Controls.ToolTip {
+                    parent: pill
+                    visible: _mouse.containsMouse
+                    delay: 500
+                    timeout: 5000
+                    text: _prov && _prov.error
+                        ? root._fullName(_prov) + ": " + _prov.error
+                        : root._fullName(_prov) + " "
+                          + (root._is7d(_prov) ? "7d" : "5h") + ": "
+                          + Math.round(root._dispVal(_prov)) + "%"
+                }
             }
         }
     }
 
+    // ── Empty state ───────────────────────────────────────────
     Text {
         anchors.centerIn: parent
         visible: !root.providers || root.providers.length === 0
@@ -136,12 +141,18 @@ Item {
         font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
 
         MouseArea {
-            id: emptyHover
+            id: _emptyMouse
             anchors.fill: parent
             hoverEnabled: true
+            onPressed: mouse.accepted = false
+            onReleased: mouse.accepted = false
         }
-
-        Controls.ToolTip.visible: emptyHover.containsMouse
-        Controls.ToolTip.text: root.errorMessage || "等待数据…"
+        Controls.ToolTip {
+            parent: parent
+            visible: _emptyMouse.containsMouse
+            delay: 500
+            timeout: 5000
+            text: root.errorMessage || "等待数据…"
+        }
     }
 }

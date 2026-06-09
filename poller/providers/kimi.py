@@ -9,7 +9,7 @@ from typing import Tuple
 
 from playwright.sync_api import BrowserContext, Page
 
-from poller.providers.base import BaseProvider, UsageData
+from poller.providers.base import BaseProvider, UsageData, format_reset_time
 
 KIMI_CONSOLE_URL = "https://www.kimi.com/code/console"
 
@@ -50,8 +50,8 @@ class KimiProvider(BaseProvider):
                 provider="kimi",
                 window_5h_percent=window_5h or 0.0,
                 window_7d_percent=window_7d or 0.0,
-                reset_5h=reset_5h,
-                reset_7d=reset_7d,
+                reset_5h=format_reset_time(reset_5h, "kimi", self.timezone_id),
+                reset_7d=format_reset_time(reset_7d, "kimi", self.timezone_id),
             )
         finally:
             page.close()
@@ -100,35 +100,47 @@ class KimiProvider(BaseProvider):
         reset_5h: str | None = None
         reset_7d: str | None = None
 
-        # Kimi shows usage in various formats — try Chinese patterns first
-        # "5小时使用量: 15%" or "5小时 15%"
-        m = re.search(
-            r"5\s*小?\s*时[^%\n]{0,200}?(\d+\.?\d*)\s*%",
-            text,
-            re.DOTALL,
-        )
-        if m:
-            window_5h = float(m.group(1))
-
-        # "周使用量" or "7天" or "本周"
-        m = re.search(
-            r"(?:周使用量|7天|本周)[^%\n]{0,200}?(\d+\.?\d*)\s*%",
-            text,
-            re.DOTALL,
-        )
+        # Kimi page layout (current):
+        #   本周用量  → weekly (7d window)
+        #   频限明细  → rate limit (5h window)
+        # Section-specific parsing first to avoid mixing up the two values.
+        m = re.search(r"本周用量[\s\S]{0,200}?(\d+\.?\d*)\s*%", text)
         if m:
             window_7d = float(m.group(1))
 
-        # Fallback: any "X%" pattern where two percentages appear
+        m = re.search(r"频限明细[\s\S]{0,200}?(\d+\.?\d*)\s*%", text)
+        if m:
+            window_5h = float(m.group(1))
+
+        # Backward-compatible fallbacks for other page variants.
+        if window_5h is None:
+            m = re.search(
+                r"5\s*小?\s*时[^%\n]{0,200}?(\d+\.?\d*)\s*%",
+                text,
+                re.DOTALL,
+            )
+            if m:
+                window_5h = float(m.group(1))
+
+        if window_7d is None:
+            m = re.search(
+                r"(?:周使用量|7天|本周)[^%\n]{0,200}?(\d+\.?\d*)\s*%",
+                text,
+                re.DOTALL,
+            )
+            if m:
+                window_7d = float(m.group(1))
+
+        # Generic fallback: Kimi lists weekly first, rate limit second.
         if window_5h is None or window_7d is None:
             all_pcts = re.findall(r"(\d+\.?\d*)\s*%", text)
             if len(all_pcts) >= 2:
-                if window_5h is None:
-                    window_5h = float(all_pcts[0])
                 if window_7d is None:
-                    window_7d = float(all_pcts[1])
-            elif len(all_pcts) >= 1:
+                    window_7d = float(all_pcts[0])
                 if window_5h is None:
+                    window_5h = float(all_pcts[1])
+            elif len(all_pcts) >= 1:
+                if window_5h is None and window_7d is None:
                     window_5h = float(all_pcts[0])
 
         # Reset times: Kimi has two sections.

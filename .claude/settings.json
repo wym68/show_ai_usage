@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(plasmawindowed org.kde.show_ai_usage)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(find ~/.local/share/plasma/plasmoids/ -name \"showaiusage\" -o -name \"*ai*usage*\" 2>/dev/null | head -10)",
+      "Read(//home/minifive/.local/share/plasma/plasmoids/**)",
+      "Bash(cat ~/.local/share/show-ai-usage/data.json 2>/dev/null || echo \"No data file found\")",
+      "Read(//home/minifive/.local/share/show-ai-usage/**)",
+      "Bash(qdbus org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript ' *)",
+      "Bash(xdpyinfo)",
+      "Bash(kreadconfig5 --group \"KScreen\" --key \"ScaleFactor\")",
+      "Bash(kreadconfig6 --group \"KScreen\" --key \"ScaleFactor\")",
+      "Bash(kill 230936)",
+      "Bash(plasmawindowed showaiusage *)",
+      "Bash(grep -r \"showaiusage\\\\|AI Usage\\\\|minWidth\\\\|preferredWidth\\\\|maximumWidth\" ~/.config/plasma-org.kde.plasma.desktop-appletsrc 2>/dev/null | head -30)",
+      "Read(//home/minifive/.config/**)"
+    ],
+    "additionalDirectories": [
+      "/home/minifive/.local/share/plasma/plasmoids/showaiusage/contents/ui"
+    ]
+  }
+}

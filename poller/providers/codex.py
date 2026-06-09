@@ -9,7 +9,7 @@ from typing import Tuple
 
 from playwright.sync_api import BrowserContext, Page
 
-from poller.providers.base import BaseProvider, UsageData
+from poller.providers.base import BaseProvider, UsageData, format_reset_time
 
 CODEX_ANALYTICS_URL = "https://chatgpt.com/codex/cloud/settings/analytics"
 CHATGPT_HOME_URL = "https://chatgpt.com"
@@ -55,8 +55,8 @@ class CodexProvider(BaseProvider):
                 provider="codex",
                 window_5h_percent=window_5h,
                 window_7d_percent=window_7d,
-                reset_5h=reset_5h,
-                reset_7d=reset_7d,
+                reset_5h=format_reset_time(reset_5h, "codex", self.timezone_id),
+                reset_7d=format_reset_time(reset_7d, "codex", self.timezone_id),
             )
         finally:
             page.close()

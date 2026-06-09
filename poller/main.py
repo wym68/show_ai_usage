@@ -12,7 +12,7 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from poller.browser import BROWSER_DATA_DIR, ManagedBrowser
+from poller.browser import BROWSER_DATA_DIR, ManagedBrowser, get_system_timezone
 from poller.config import CONFIG_FILE, init_default_config, load_config, merge_cli_overrides
 from poller.storage import load_results, save_results
 
@@ -57,10 +57,11 @@ def _handle_login(config, provider: str = "codex") -> None:
     display_name = {"codex": "OpenAI Codex", "claude": "Claude", "kimi": "Kimi", "minimax": "MiniMax"}
 
     browser_dir = _get_browser_data_dir(config.browser_data_dir)
+    resolved_timezone = config.timezone or get_system_timezone()
     print("[1/3] Starting isolated Edge browser (project profile) ...")
     print(f"      Profile: {browser_dir}")
 
-    with ManagedBrowser(headless=False, data_dir=browser_dir, timezone=config.timezone) as browser:
+    with ManagedBrowser(headless=False, data_dir=browser_dir, timezone=resolved_timezone) as browser:
         context = browser.get_context()
         page = context.new_page()
 
@@ -94,14 +95,15 @@ def _poll(provider_names: list[str], config) -> list[dict]:
 
     from poller.providers import get_enabled_providers
 
-    providers = get_enabled_providers(provider_names)
+    resolved_timezone = config.timezone or get_system_timezone()
+    providers = get_enabled_providers(provider_names, timezone_id=resolved_timezone)
 
     if not providers:
         print("  (no providers enabled)")
         return []
 
     results: list[dict] = []
-    with ManagedBrowser(headless=True, data_dir=browser_dir, timezone=config.timezone) as browser:
+    with ManagedBrowser(headless=True, data_dir=browser_dir, timezone=resolved_timezone) as browser:
         context = browser.get_context()
         for provider in providers:
             print(f"  Polling {provider.name} ...", end=" ", flush=True)
@@ -156,11 +158,12 @@ def _handle_debug_dump(provider_names: list[str], config) -> None:
 
     from poller.providers import get_enabled_providers
 
-    providers = get_enabled_providers(provider_names)
+    resolved_timezone = config.timezone or get_system_timezone()
+    providers = get_enabled_providers(provider_names, timezone_id=resolved_timezone)
     dump_dir = Path("/tmp/show-ai-usage-debug")
     dump_dir.mkdir(parents=True, exist_ok=True)
 
-    with ManagedBrowser(headless=False, data_dir=browser_dir, timezone=config.timezone) as browser:
+    with ManagedBrowser(headless=False, data_dir=browser_dir, timezone=resolved_timezone) as browser:
         context = browser.get_context()
 
         for provider in providers:

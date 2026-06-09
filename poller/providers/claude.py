@@ -9,7 +9,7 @@ from typing import Tuple
 
 from playwright.sync_api import BrowserContext, Page
 
-from poller.providers.base import BaseProvider, UsageData
+from poller.providers.base import BaseProvider, UsageData, format_reset_time
 
 CLAUDE_USAGE_URL = "https://claude.ai/new#settings/usage"
 CLAUDE_HOME_URL = "https://claude.ai"
@@ -51,8 +51,8 @@ class ClaudeProvider(BaseProvider):
                 provider="claude",
                 window_5h_percent=window_5h or 0.0,
                 window_7d_percent=window_7d or 0.0,
-                reset_5h=reset_5h,
-                reset_7d=reset_7d,
+                reset_5h=format_reset_time(reset_5h, "claude", self.timezone_id),
+                reset_7d=format_reset_time(reset_7d, "claude", self.timezone_id),
             )
         finally:
             page.close()
@@ -163,17 +163,32 @@ class ClaudeProvider(BaseProvider):
             elif len(all_pcts) >= 1 and window_5h is None:
                 window_5h = float(all_pcts[0])
 
-        # Reset time: weekly "Resets Tue 5:00 AM" (Claude only shows weekly reset)
-        m = re.search(r"Resets?\s+([A-Za-z]+\s+\d+:\d+\s*(?:AM|PM))", text, re.IGNORECASE)
+        m = re.search(
+            r"Resets in\s+([\d\s]+(?:hr|min)(?:\s+[\d\s]+(?:hr|min))?)",
+            text, re.IGNORECASE,
+        )
+        if m:
+            reset_5h = m.group(1).strip()
+
+        if not reset_5h:
+            m = re.search(r"(Starts when a message is sent)", text, re.IGNORECASE)
+            if m:
+                reset_5h = m.group(1).strip()
+
+        m = re.search(r"Resets\s+([A-Za-z]+\s+\d+:\d+\s*(?:AM|PM))", text, re.IGNORECASE)
         if m:
             reset_7d = m.group(1).strip()
+
+        if not reset_7d:
+            m = re.search(r"(Starts when a message is sent)", text, re.IGNORECASE)
+            if m:
+                reset_7d = m.group(1).strip()
+
         # Chinese fallback pattern (if page ever switches locale)
         if not reset_7d:
             m = re.search(r"([\d\s天小时分分钟hms]+\s*(?:后)?(?:重置|到期))", text)
             if m:
                 reset_7d = m.group(1).strip()
-        # Claude doesn't show a separate 5h reset time
-        reset_5h = None
 
         return window_5h, window_7d, reset_5h, reset_7d
 

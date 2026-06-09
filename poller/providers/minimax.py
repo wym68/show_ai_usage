@@ -9,7 +9,7 @@ from typing import Tuple
 
 from playwright.sync_api import BrowserContext, Page
 
-from poller.providers.base import BaseProvider, UsageData
+from poller.providers.base import BaseProvider, UsageData, format_reset_time
 
 MINIMAX_USAGE_URL = "https://platform.minimaxi.com/console/usage"
 
@@ -50,8 +50,8 @@ class MiniMaxProvider(BaseProvider):
                 provider="minimax",
                 window_5h_percent=window_5h or 0.0,
                 window_7d_percent=window_7d or 0.0,
-                reset_5h=reset_5h,
-                reset_7d=reset_7d,
+                reset_5h=format_reset_time(reset_5h, "minimax", self.timezone_id),
+                reset_7d=format_reset_time(reset_7d, "minimax", self.timezone_id),
             )
         finally:
             page.close()
