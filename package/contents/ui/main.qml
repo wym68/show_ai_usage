@@ -9,6 +9,12 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
+    // Force the panel to allocate enough horizontal space for 4 pills.
+    // These Layout properties live on the PlasmoidItem itself, which IS the direct
+    // child of the panel's RowLayout — this is the correct place, not CompactRepresentation.
+    Layout.minimumWidth: 4 * Kirigami.Units.gridUnit * 3 + 3 * Kirigami.Units.smallSpacing
+    Layout.preferredWidth: 4 * Kirigami.Units.gridUnit * 4 + 3 * Kirigami.Units.smallSpacing
+
     property var usageData: ({ "providers": [] })
     property var providers: usageData && usageData.providers ? usageData.providers : []
     property string errorMessage: ""

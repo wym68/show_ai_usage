@@ -11,18 +11,15 @@ Item {
     property string errorMessage: ""
 
     // ── Sizing ────────────────────────────────────────────────
-    readonly property real _pillW: Kirigami.Units.gridUnit * 3.5
-    readonly property real _pillH: Kirigami.Units.gridUnit * 1.0
+    // implicitWidth/Height are based solely on gridUnit (a theme constant fixed at startup).
+    // Dynamic values (height, providers.length) must NOT drive implicitWidth — Plasma panels
+    // evaluate it once at widget init and lock in the allocated space; if it starts at 0
+    // and grows later the panel won't re-expand the widget.
+    readonly property real _pillH: Kirigami.Units.gridUnit * 1.4
     readonly property real _gap: Kirigami.Units.smallSpacing
-    // Fixed width based on max 4 providers — Plasma panel locks widget size at startup,
-    // so dynamic recalculation when data loads causes truncation.
-    readonly property real _totalW: 4 * _pillW + 3 * _gap
 
-    implicitWidth: _totalW
+    implicitWidth:  4 * Kirigami.Units.gridUnit * 4 + 3 * _gap
     implicitHeight: _pillH
-    Layout.minimumWidth: _totalW
-    Layout.preferredWidth: _totalW
-    Layout.maximumWidth: _totalW
     clip: true
 
     // ── Helpers ───────────────────────────────────────────────
@@ -53,7 +50,7 @@ Item {
     RowLayout {
         id: pillRow
         anchors.centerIn: parent
-        width: root.width
+        width: root.width > 0 ? root.width : root.implicitWidth
         height: root._pillH
         spacing: root._gap
         visible: root.providers && root.providers.length > 0
@@ -90,9 +87,9 @@ Item {
                 // Provider + Percentage label
                 Text {
                     anchors.centerIn: parent
-                    text: root._label(parent._prov) + " " + Math.round(parent._val) + "%"
+                    text: root._label(parent._prov) + "  " + Math.round(parent._val) + "%"
                     color: "white"
-                    font.pixelSize: Math.max(7, Math.round(parent.height * 0.42))
+                    font.pixelSize: Math.max(10, Math.round(parent.height * 0.56))
                     font.bold: true
                     style: Text.Outline
                     styleColor: "black"

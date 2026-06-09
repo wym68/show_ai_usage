@@ -327,11 +327,20 @@ with ManagedBrowser(headless=True, data_dir=...) as browser:
 
 #### `package/contents/ui/CompactRepresentation.qml` — 面板紧凑显示
 
-- 每个 provider 显示一根**彩色圆角条**
-- 条宽按 `window_5h_percent` 比例填充
+- 每个 provider 显示一根**彩色圆角条（pill）**
+- 条的右侧被半透明背景覆盖 `(100 - usage)%`，左侧彩色部分即为使用率进度
 - 色彩按使用率分级（绿/黄/橙/红）
 - 鼠标悬停显示 ToolTip：provider 名 + 百分比
 - 无数据时显示 "⋯"
+
+**尺寸设计要点：**
+
+| 属性 | 值 | 说明 |
+|------|----|------|
+| `_pillH` | `Kirigami.Units.gridUnit` | 固定高度，基于主题常量，不随运行时值变化 |
+| `implicitWidth` | `4 * gridUnit * 4 + 3 * smallSpacing` | 静态值，见下方「布局陷阱」说明 |
+| RowLayout width | `root.width > 0 ? root.width : implicitWidth` | 自适应面板实际分配宽度 |
+| pill 宽度 | `Layout.fillWidth: true` | 均分可用宽度，不写死 |
 
 #### `package/contents/ui/FullRepresentation.qml` — 弹出完整面板
 

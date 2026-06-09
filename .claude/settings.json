@@ -14,7 +14,19 @@
       "Bash(kill 230936)",
       "Bash(plasmawindowed showaiusage *)",
       "Bash(grep -r \"showaiusage\\\\|AI Usage\\\\|minWidth\\\\|preferredWidth\\\\|maximumWidth\" ~/.config/plasma-org.kde.plasma.desktop-appletsrc 2>/dev/null | head -30)",
-      "Read(//home/minifive/.config/**)"
+      "Read(//home/minifive/.config/**)",
+      "Bash(grep -A5 \"^\\\\[Containments\\\\]\\\\[3\\\\]$\" ~/.config/plasma-org.kde.plasma.desktop-appletsrc)",
+      "Bash(journalctl --user -u plasma-plasmashell --since \"1 minute ago\" --no-pager)",
+      "Bash(journalctl --user -n 200 --no-pager)",
+      "Bash(journalctl _COMM=plasmashell --since \"10 minutes ago\" --no-pager)",
+      "Bash(qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript ' *)",
+      "Bash(ps -o pid,lstart -p 224525)",
+      "Bash(kpackagetool6 --type Plasma/Applet --upgrade ./package)",
+      "Bash(plasmashell --replace)",
+      "Bash(echo \"plasmashell restarting, PID: $!\")",
+      "Bash(echo \"plasmashell restarted, PID: $!\")",
+      "Bash(echo \"restarted: $!\")",
+      "Bash(echo \"done: $!\")"
     ],
     "additionalDirectories": [
       "/home/minifive/.local/share/plasma/plasmoids/showaiusage/contents/ui"
