@@ -111,7 +111,7 @@ interval = 300
 
 # List of providers to poll.  Available: "codex", "claude", "kimi", "minimax"
 # When adding new providers, add their IDs here.
-enabled_providers = ["codex"]
+enabled_providers = ["codex", "claude", "kimi", "minimax"]
 
 [paths]
 # Directory where poll results (data.json) are written.
