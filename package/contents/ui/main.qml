@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtCore
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
+import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.kirigami as Kirigami
 
 PlasmoidItem {
@@ -11,40 +12,42 @@ PlasmoidItem {
     property var usageData: ({ "providers": [] })
     property var providers: usageData && usageData.providers ? usageData.providers : []
     property string errorMessage: ""
-    // StandardPaths.writableLocation already returns a "file://" URL, don't prepend another one
+    // StandardPaths.writableLocation returns a file:// URL like "file:///home/user/.local/share"
     readonly property string dataFileUrl: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/show-ai-usage/data.json"
+    // Bare filesystem path for shell commands (strip file:// prefix)
+    readonly property string dataFilePath: {
+        var url = dataFileUrl.toString()
+        return url.substring(0, 7) === "file://" ? url.substring(7) : url
+    }
+
+    // Read data file via the executable dataengine (works in both plasmawindowed and panel)
+    Plasma5Support.DataSource {
+        id: fileReader
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: {
+            var stdout = data["stdout"] || ""
+            if (stdout.length > 0) {
+                try {
+                    var parsed = JSON.parse(stdout)
+                    root.usageData = parsed
+                    root.errorMessage = ""
+                } catch (e) {
+                    root.errorMessage = "数据格式错误: " + e
+                    root.usageData = { "providers": [] }
+                }
+            } else {
+                var stderr = data["stderr"] || ""
+                root.errorMessage = stderr.length > 0 ? "读取失败: " + stderr : "数据文件为空"
+                root.usageData = { "providers": [] }
+            }
+            disconnectSource(sourceName)
+        }
+    }
 
     function loadUsageData() {
-        var request = new XMLHttpRequest()
-        request.onreadystatechange = function() {
-            if (request.readyState !== XMLHttpRequest.DONE) {
-                return
-            }
-
-            if (request.status !== 0 && request.status !== 200) {
-                root.errorMessage = "无法读取数据文件: " + request.status
-                root.usageData = { "providers": [] }
-                return
-            }
-
-            if (!request.responseText || request.responseText.trim().length === 0) {
-                root.errorMessage = "数据文件为空"
-                root.usageData = { "providers": [] }
-                return
-            }
-
-            try {
-                var parsed = JSON.parse(request.responseText)
-                root.usageData = parsed || { "providers": [] }
-                root.errorMessage = ""
-            } catch (error) {
-                root.errorMessage = "数据格式错误: " + error
-                root.usageData = { "providers": [] }
-            }
-        }
-
-        request.open("GET", root.dataFileUrl, true)
-        request.send()
+        fileReader.connectSource("cat " + root.dataFilePath)
     }
 
     compactRepresentation: CompactRepresentation {
@@ -61,7 +64,6 @@ PlasmoidItem {
 
     Timer {
         id: refreshTimer
-        // Binding re-evaluates automatically when config changes
         interval: (Plasmoid.configuration.refreshInterval || 60) * 1000
         running: true
         repeat: true

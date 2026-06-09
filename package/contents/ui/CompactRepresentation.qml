@@ -15,12 +15,28 @@ Item {
         : Kirigami.Units.gridUnit * 2
     implicitHeight: Kirigami.Units.gridUnit
 
-    function percent(provider) {
-        var value = Number(provider && provider.window_5h_percent)
-        if (isNaN(value)) {
-            return 0
+    function value5h(provider) {
+        var v = Number(provider && provider.window_5h_percent)
+        return isNaN(v) ? 0 : Math.max(0, Math.min(100, v))
+    }
+
+    function value7d(provider) {
+        var v = Number(provider && provider.window_7d_percent)
+        return isNaN(v) ? 0 : Math.max(0, Math.min(100, v))
+    }
+
+    // Show 7d usage when it exceeds 85%, otherwise show 5h
+    function displayPercent(provider) {
+        var v7 = root.value7d(provider)
+        if (v7 > 85) {
+            return v7
         }
-        return Math.max(0, Math.min(100, value))
+        return root.value5h(provider)
+    }
+
+    // True when the displayed value is the 7d window
+    function showing7d(provider) {
+        return root.value7d(provider) > 85
     }
 
     function usageColor(value) {
@@ -40,6 +56,16 @@ Item {
         return provider && provider.provider ? provider.provider : "未知服务"
     }
 
+    function displayName(provider) {
+        switch (provider && provider.provider) {
+            case "codex":    return "OpenAI Codex"
+            case "claude":   return "Claude Code"
+            case "kimi":     return "Kimi"
+            case "minimax":  return "MiniMax"
+            default:         return provider && provider.provider || "未知服务"
+        }
+    }
+
     RowLayout {
         id: compactRow
         anchors.centerIn: parent
@@ -53,21 +79,37 @@ Item {
                 id: meter
 
                 readonly property var provider: modelData
-                readonly property real usagePercent: root.percent(provider)
+                readonly property real displayVal: root.displayPercent(provider)
+                readonly property bool is7d: root.showing7d(provider)
 
-                Layout.preferredWidth: Kirigami.Units.gridUnit
+                Layout.preferredWidth: is7d ? Kirigami.Units.gridUnit * 1.6 : Kirigami.Units.gridUnit
                 Layout.preferredHeight: Math.max(Kirigami.Units.smallSpacing, Kirigami.Units.gridUnit * 0.35)
                 radius: height / 2
                 color: Kirigami.Theme.disabledTextColor
                 opacity: provider && provider.error ? 0.65 : 1
 
+                // Filled portion of the bar
                 Rectangle {
                     anchors.left: parent.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    width: Math.max(parent.height, parent.width * meter.usagePercent / 100)
+                    width: Math.max(parent.height, parent.width * meter.displayVal / 100)
                     radius: parent.radius
-                    color: provider && provider.error ? "#F44336" : root.usageColor(meter.usagePercent)
+                    color: provider && provider.error ? "#F44336" : root.usageColor(meter.displayVal)
+                }
+
+                // 7d indicator dot/line when showing weekly usage
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 1
+                    width: parent.height * 0.5
+                    radius: width / 2
+                    visible: meter.is7d
+                    color: "transparent"
+                    border.width: 1
+                    border.color: "white"
                 }
 
                 MouseArea {
@@ -78,8 +120,10 @@ Item {
 
                 Controls.ToolTip.visible: hoverArea.containsMouse
                 Controls.ToolTip.text: provider && provider.error
-                    ? root.providerName(provider) + ": " + provider.error
-                    : root.providerName(provider) + " 5h: " + Math.round(meter.usagePercent) + "%"
+                    ? root.displayName(provider) + ": " + provider.error
+                    : root.displayName(provider) + " "
+                      + (meter.is7d ? "7d" : "5h") + ": "
+                      + Math.round(meter.displayVal) + "%"
             }
         }
     }
