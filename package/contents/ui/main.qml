@@ -11,7 +11,8 @@ PlasmoidItem {
     property var usageData: ({ "providers": [] })
     property var providers: usageData && usageData.providers ? usageData.providers : []
     property string errorMessage: ""
-    readonly property string dataFileUrl: "file://" + StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/show-ai-usage/data.json"
+    // StandardPaths.writableLocation already returns a "file://" URL, don't prepend another one
+    readonly property string dataFileUrl: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/show-ai-usage/data.json"
 
     function loadUsageData() {
         var request = new XMLHttpRequest()
@@ -59,7 +60,9 @@ PlasmoidItem {
     }
 
     Timer {
-        interval: 60000
+        id: refreshTimer
+        // Binding re-evaluates automatically when config changes
+        interval: (Plasmoid.configuration.refreshInterval || 60) * 1000
         running: true
         repeat: true
         onTriggered: root.loadUsageData()

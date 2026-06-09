@@ -8,13 +8,11 @@
     ],
     "Category": "Utilities",
     "Description": "Monitor local AI coding subscription usage from the poller JSON cache.",
-    "EnabledByDefault": true,
     "Icon": "utilities-system-monitor",
     "Id": "showaiusage",
     "License": "MIT",
     "Name": "AI Usage Monitor",
     "Version": "0.1.0"
   },
-  "X-Plasma-API": "declarativeappletscript",
-  "X-Plasma-MainScript": "ui/main.qml"
+  "X-Plasma-API-Minimum-Version": "6.0"
 }

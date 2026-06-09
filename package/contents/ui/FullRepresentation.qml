@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as Controls
+import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
@@ -13,8 +14,12 @@ Item {
     property string errorMessage: ""
     property string dataFileUrl: ""
 
+    readonly property int staleThreshold: (Plasmoid.configuration.staleThreshold || 600) * 1000  // ms
+
     implicitWidth: Kirigami.Units.gridUnit * 20
     implicitHeight: Kirigami.Units.gridUnit * 24
+
+    /* ── Helper functions ─────────────────────────────────── */
 
     function percent(provider, key) {
         var value = Number(provider && provider[key])
@@ -25,31 +30,60 @@ Item {
     }
 
     function usageColor(value) {
-        if (value >= 95) {
-            return "#F44336"
-        }
-        if (value >= 80) {
-            return "#FF9800"
-        }
-        if (value >= 50) {
-            return "#FFC107"
-        }
+        if (value >= 95) return "#F44336"
+        if (value >= 80) return "#FF9800"
+        if (value >= 50) return "#FFC107"
         return "#4CAF50"
     }
 
-    function providerName(provider) {
-        return provider && provider.provider ? provider.provider : "未知服务"
+    function displayName(raw) {
+        var map = {
+            "codex":      "OpenAI Codex",
+            "claude":     "Claude Code",
+            "kimi":       "Kimi",
+            "minimax":    "MiniMax"
+        }
+        return map[raw] || raw
     }
 
     function formatPercent(value) {
         return Math.round(value) + "%"
     }
 
+    function relativeTime(isoString) {
+        if (!isoString) return "未知"
+        var now = new Date()
+        var then = new Date(isoString)
+        var diffMs = now.getTime() - then.getTime()
+        if (isNaN(diffMs)) return isoString
+
+        if (diffMs < 0) return "刚刚"
+        var diffSec = Math.floor(diffMs / 1000)
+        if (diffSec < 60)   return diffSec + " 秒前"
+        var diffMin = Math.floor(diffSec / 60)
+        if (diffMin < 60)   return diffMin + " 分钟前"
+        var diffHour = Math.floor(diffMin / 60)
+        if (diffHour < 24)  return diffHour + " 小时前"
+        var diffDay = Math.floor(diffHour / 24)
+        return diffDay + " 天前"
+    }
+
+    function isStale() {
+        if (!usageData || !usageData.fetched_at) return false
+        var now = new Date().getTime()
+        var fetched = new Date(usageData.fetched_at).getTime()
+        if (isNaN(fetched)) return false
+        return (now - fetched) > root.staleThreshold
+    }
+
+    /* ── UI ───────────────────────────────────────────────── */
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing
-        spacing: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.smallSpacing
 
+        /* Header */
         PlasmaExtras.Heading {
             Layout.fillWidth: true
             text: "🤖 AI 订阅用量追踪"
@@ -57,13 +91,29 @@ Item {
             wrapMode: Text.WordWrap
         }
 
-        LabelLine {
+        /* Update time + stale warning */
+        RowLayout {
             Layout.fillWidth: true
-            visible: !!(root.usageData && root.usageData.fetched_at)
-            label: "更新时间:"
-            value: root.usageData && root.usageData.fetched_at ? root.usageData.fetched_at : ""
+            spacing: Kirigami.Units.smallSpacing
+
+            Controls.Label {
+                text: "更新时间:"
+                color: Kirigami.Theme.disabledTextColor
+            }
+            Controls.Label {
+                Layout.fillWidth: true
+                text: relativeTime(usageData && usageData.fetched_at)
+                color: Kirigami.Theme.textColor
+            }
+            Controls.Label {
+                visible: root.isStale()
+                text: "⚠ 数据已过期"
+                color: "#FF9800"
+                font.bold: true
+            }
         }
 
+        /* Scrollable provider list */
         Controls.ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -73,6 +123,7 @@ Item {
                 width: parent.width
                 spacing: Kirigami.Units.largeSpacing
 
+                /* Empty / error state */
                 Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: emptyColumn.implicitHeight
@@ -88,7 +139,6 @@ Item {
                             Layout.fillWidth: true
                             text: root.errorMessage ? root.errorMessage : "等待数据… 请先运行 poller"
                         }
-
                         Controls.Label {
                             Layout.fillWidth: true
                             visible: root.dataFileUrl.length > 0
@@ -100,6 +150,7 @@ Item {
                     }
                 }
 
+                /* Provider cards */
                 Repeater {
                     model: root.providers || []
 
@@ -125,7 +176,7 @@ Item {
 
                             Controls.Label {
                                 Layout.fillWidth: true
-                                text: root.providerName(provider)
+                                text: root.displayName(provider && provider.provider)
                                 color: Kirigami.Theme.textColor
                                 font.bold: true
                                 font.pixelSize: Kirigami.Theme.defaultFont.pixelSize * 1.15
@@ -173,7 +224,29 @@ Item {
                 }
             }
         }
+
+        /* Bottom action bar */
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+
+            Item { Layout.fillWidth: true }  // spacer
+
+            Controls.Button {
+                icon.name: "view-refresh"
+                text: "刷新"
+                onClicked: {
+                    // Plasmoid.rootItem is the PlasmoidItem from main.qml
+                    if (Plasmoid.rootItem && typeof Plasmoid.rootItem.loadUsageData === "function") {
+                        Plasmoid.rootItem.loadUsageData()
+                    }
+                }
+            }
+        }
     }
+
+    /* ── Inline components ─────────────────────────────────── */
 
     component UsageRow: RowLayout {
         property string label: ""
