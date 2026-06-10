@@ -3,19 +3,28 @@
 # uninstall.sh — Uninstall Show AI Usage (user-local, no root required)
 #
 # Usage:
-#   ./scripts/uninstall.sh              # uninstall, keep data
-#   ./scripts/uninstall.sh --purge      # uninstall and remove all data
+#   ./scripts/uninstall.sh                  # uninstall, keep data
+#   ./scripts/uninstall.sh --purge          # uninstall + remove config & data
+#   ./scripts/uninstall.sh --purge-all      # uninstall + remove config, data, .venv
 #
 set -euo pipefail
 
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 PLASMOID_ID="showaiusage"
-PURGE="${1:-}"
+MODE="${1:-}"
 
 echo "🗑️  Show AI Usage — Uninstaller"
 echo ""
 
+# Determine project directory safely
 PROJECT_DIR="$PWD"
+
+# ── Safety check ─────────────────────────────────────────────
+if [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
+    echo "⚠  Warning: Project directory seems to have moved or been deleted."
+    echo "   systemd unit files will still be removed, but project files"
+    echo "   cannot be cleaned automatically."
+fi
 
 # ── 1. Stop and disable systemd timer ──────────────────────────
 echo "[1/4] Stopping systemd timer ..."
@@ -43,19 +52,62 @@ fi
 echo ""
 
 # ── 4. Clean up data files (optional) ──────────────────────────
-if [ "$PURGE" = "--purge" ]; then
-    echo "[4/4] Purging config and data files ..."
-    rm -rf "$HOME/.config/show-ai-usage"
-    rm -rf "$HOME/.local/share/show-ai-usage"
-    echo "      ✓  Config and data removed"
-    echo "      Note: browser-data/ in the project directory was kept."
-    echo "      Remove manually: rm -rf \"$PROJECT_DIR/browser-data\""
-else
-    echo "[4/4] Keeping config and data files."
-    echo "      To remove them manually:"
-    echo "        rm -rf ~/.config/show-ai-usage"
-    echo "        rm -rf ~/.local/share/show-ai-usage"
-fi
+case "$MODE" in
+    --purge-all)
+        echo "[4/4] Purging all files ..."
+
+        # List directories to be removed
+        echo "   The following directories will be DELETED:"
+        echo "     - $HOME/.config/show-ai-usage"
+        echo "     - $HOME/.local/share/show-ai-usage"
+        if [ -d "$PROJECT_DIR/browser-data" ]; then
+            echo "     - $PROJECT_DIR/browser-data"
+        fi
+        if [ -d "$PROJECT_DIR/.venv" ]; then
+            echo "     - $PROJECT_DIR/.venv"
+        fi
+
+        echo ""
+        echo -n "   Continue? [y/N] "
+        read -r CONFIRM
+        if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+            rm -rf "$HOME/.config/show-ai-usage"
+            rm -rf "$HOME/.local/share/show-ai-usage"
+
+            if [ -d "$PROJECT_DIR/browser-data" ]; then
+                rm -rf "$PROJECT_DIR/browser-data"
+                echo "      ✓  browser-data removed"
+            fi
+            if [ -d "$PROJECT_DIR/.venv" ]; then
+                rm -rf "$PROJECT_DIR/.venv"
+                echo "      ✓  .venv removed"
+            fi
+            echo "      ✓  All files purged"
+        else
+            echo "      ✗  Purge cancelled by user"
+        fi
+        ;;
+    --purge)
+        echo "[4/4] Purging config and data files ..."
+        echo "   Removing: $HOME/.config/show-ai-usage"
+        echo "   Removing: $HOME/.local/share/show-ai-usage"
+        rm -rf "$HOME/.config/show-ai-usage"
+        rm -rf "$HOME/.local/share/show-ai-usage"
+        echo "      ✓  Config and data removed"
+        echo "      Note: browser-data/ in the project directory was kept."
+        echo "      To remove manually: rm -rf \"$PROJECT_DIR/browser-data\""
+        echo "      To also remove .venv: rm -rf \"$PROJECT_DIR/.venv\""
+        ;;
+    *)
+        echo "[4/4] Keeping config and data files."
+        echo "      To remove them manually:"
+        echo "        rm -rf ~/.config/show-ai-usage"
+        echo "        rm -rf ~/.local/share/show-ai-usage"
+        echo ""
+        echo "   To reinstall:"
+        echo "     git clone <repo> && cd show-ai-usage && ./scripts/install.sh"
+        ;;
+esac
 echo ""
 
 echo "✅  Uninstall complete."

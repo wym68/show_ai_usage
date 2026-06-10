@@ -1,16 +1,22 @@
 """Isolated Edge browser management.
 
-Manages a completely separate Edge profile inside the project directory
+Manages a completely separate Edge profile inside the XDG data directory
 so that login state is isolated from the user's system browser.
 """
 
+import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from playwright.sync_api import BrowserContext, Playwright, sync_playwright
 
+from poller.config import _BROWSER_DATA_DEFAULT
+
+log = logging.getLogger(__name__)
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-BROWSER_DATA_DIR = PROJECT_DIR / "browser-data"
+BROWSER_DATA_DIR = _BROWSER_DATA_DEFAULT
 
 _USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -39,7 +45,6 @@ def get_system_timezone() -> str:
     try:
         link = os.readlink("/etc/localtime")
         parts = link.split("/")
-        # walk backwards to find the Region/City pair
         for i in range(len(parts) - 1, 0, -1):
             candidate = "/".join(parts[i - 1 : i + 1])
             if "/" in candidate and not candidate.startswith("zoneinfo"):
@@ -80,10 +85,14 @@ class ManagedBrowser:
         headless: bool = True,
         data_dir: Path | None = None,
         timezone: str | None = None,
+        browser_channel: str = "msedge",
+        proxy: str | None = None,
     ):
         self.data_dir = data_dir or BROWSER_DATA_DIR
         self.headless = headless
         self.timezone = timezone or get_system_timezone()
+        self.browser_channel = browser_channel
+        self.proxy = proxy
         self._pw: Playwright | None = None
         self._context: BrowserContext | None = None
 
@@ -95,10 +104,20 @@ class ManagedBrowser:
         self._pw = sync_playwright().start()
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
+
+        proxy_arg: Any = {"server": self.proxy} if self.proxy else None
+        if self.proxy:
+            log.info("Using proxy: %s", self.proxy)
+
+        log.debug(
+            "Launching browser: channel=%s headless=%s data_dir=%s timezone=%s",
+            self.browser_channel, self.headless, self.data_dir, self.timezone,
+        )
         self._context = self._pw.chromium.launch_persistent_context(
             user_data_dir=str(self.data_dir),
-            channel="msedge",
+            channel=self.browser_channel,
             headless=self.headless,
+            proxy=proxy_arg,
             user_agent=_USER_AGENT,
             locale="zh-CN",
             timezone_id=self.timezone,
@@ -118,7 +137,6 @@ class ManagedBrowser:
     def close(self) -> None:
         if self._context is not None:
             try:
-                # Close all remaining pages first to prevent "browser closed" warnings
                 for page in self._context.pages:
                     try:
                         page.close()

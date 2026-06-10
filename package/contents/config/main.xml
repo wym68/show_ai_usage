@@ -19,4 +19,52 @@
       <max>86400</max>
     </entry>
   </group>
+
+  <group name="Display">
+    <entry name="displayMode" type="Int">
+      <label>显示模式</label>
+      <default>0</default>
+      <min>0</min>
+      <max>2</max>
+    </entry>
+    <entry name="showProviderLabels" type="Bool">
+      <label>紧凑模式显示字母标签</label>
+      <default>true</default>
+    </entry>
+    <entry name="compactMaxProviders" type="Int">
+      <label>紧凑模式最大显示数</label>
+      <default>4</default>
+      <min>1</min>
+      <max>8</max>
+    </entry>
+  </group>
+
+  <group name="Advanced">
+    <entry name="dataFilePath" type="String">
+      <label>自定义数据文件路径</label>
+      <default>auto</default>
+    </entry>
+    <entry name="colorTheme" type="Int">
+      <label>配色方案</label>
+      <default>0</default>
+      <min>0</min>
+      <max>2</max>
+    </entry>
+    <entry name="customColorLow" type="String">
+      <label>低用量颜色 (0–50%)</label>
+      <default>#4CAF50</default>
+    </entry>
+    <entry name="customColorMid" type="String">
+      <label>中用量颜色 (50–80%)</label>
+      <default>#FFC107</default>
+    </entry>
+    <entry name="customColorHigh" type="String">
+      <label>高用量颜色 (80–95%)</label>
+      <default>#FF9800</default>
+    </entry>
+    <entry name="customColorCritical" type="String">
+      <label>临界用量颜色 (95–100%)</label>
+      <default>#F44336</default>
+    </entry>
+  </group>
 </kcfg>

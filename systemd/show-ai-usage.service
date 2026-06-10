@@ -6,6 +6,10 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=@@PROJECT_DIR@@/.venv/bin/python @@PROJECT_DIR@@/poller/main.py --oneshot
+ExecStart=@@UV_PATH@@ run --directory @@PROJECT_DIR@@ python -m poller.main --oneshot
 WorkingDirectory=@@PROJECT_DIR@@
 User=%u
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal

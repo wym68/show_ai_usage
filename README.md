@@ -58,7 +58,7 @@ uv sync
 ### 2. 初始化配置
 
 ```bash
-uv run python poller/main.py --init-config
+uv run python -m poller.main --init-config
 ```
 
 配置文件生成于 `~/.config/show-ai-usage/config.toml`。
@@ -68,17 +68,17 @@ uv run python poller/main.py --init-config
 每个平台首次使用前需在隔离浏览器中手动登录一次，登录态保存在 `browser-data/` 中：
 
 ```bash
-uv run python poller/main.py --login codex
-uv run python poller/main.py --login claude
-uv run python poller/main.py --login kimi
-uv run python poller/main.py --login minimax
+uv run python -m poller.main --login codex
+uv run python -m poller.main --login claude
+uv run python -m poller.main --login kimi
+uv run python -m poller.main --login minimax
 ```
 
 ### 4. 测试抓取
 
 ```bash
-uv run python poller/main.py --oneshot
-uv run python poller/main.py --status   # 查看结果
+uv run python -m poller.main --oneshot
+uv run python -m poller.main --status   # 查看结果
 ```
 
 ### 5. 安装 Plasmoid 和 systemd 定时任务
@@ -125,13 +125,13 @@ Plasmoid 内置配置（右键小部件 → 配置）：
 
 ```bash
 # 手动抓取一次
-uv run python poller/main.py --oneshot
+uv run python -m poller.main --oneshot
 
 # 查看最新数据
-uv run python poller/main.py --status
+uv run python -m poller.main --status
 
 # 调试某个 provider（有头浏览器 + 保存页面到 /tmp/）
-uv run python poller/main.py --debug --providers codex
+uv run python -m poller.main --debug --providers codex
 
 # 查看/手动触发 systemd timer
 systemctl --user status show-ai-usage.timer

@@ -10,8 +10,6 @@ PlasmoidItem {
     id: root
 
     // Force the panel to allocate enough horizontal space for 4 pills.
-    // These Layout properties live on the PlasmoidItem itself, which IS the direct
-    // child of the panel's RowLayout — this is the correct place, not CompactRepresentation.
     Layout.minimumWidth: 4 * Kirigami.Units.gridUnit * 3 + 3 * Kirigami.Units.smallSpacing
     Layout.preferredWidth: 4 * Kirigami.Units.gridUnit * 4 + 3 * Kirigami.Units.smallSpacing
 
@@ -19,8 +17,18 @@ PlasmoidItem {
     property var providers: usageData && usageData.providers ? usageData.providers : []
     property string errorMessage: ""
 
-    // Override the default metadata tooltip (applet name + description) with live usage data.
-    // Plasma Shell renders this tooltip outside the panel bounds — no flickering, correct position.
+    // Resolve data file path: custom or default
+    readonly property string defaultDataFileUrl: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/show-ai-usage/data.json"
+    property string resolvedDataFilePath: {
+        var custom = Plasmoid.configuration.dataFilePath || "auto"
+        if (custom === "" || custom === "auto") {
+            var url = defaultDataFileUrl.toString()
+            return url.substring(0, 7) === "file://" ? url.substring(7) : url
+        }
+        return custom
+    }
+
+    // Override the default metadata tooltip with live usage data.
     toolTipMainText: "AI 用量"
     toolTipTextFormat: Text.RichText
     toolTipSubText: {
@@ -65,15 +73,8 @@ PlasmoidItem {
         var diffDay = Math.floor(diffHour / 24)
         return diffDay + " 天前"
     }
-    // StandardPaths.writableLocation returns a file:// URL like "file:///home/user/.local/share"
-    readonly property string dataFileUrl: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/show-ai-usage/data.json"
-    // Bare filesystem path for shell commands (strip file:// prefix)
-    readonly property string dataFilePath: {
-        var url = dataFileUrl.toString()
-        return url.substring(0, 7) === "file://" ? url.substring(7) : url
-    }
 
-    // Read data file via the executable dataengine (works in both plasmawindowed and panel)
+    // Read data file via the executable dataengine
     Plasma5Support.DataSource {
         id: fileReader
         engine: "executable"
@@ -100,7 +101,7 @@ PlasmoidItem {
     }
 
     function loadUsageData() {
-        fileReader.connectSource("cat " + root.dataFilePath)
+        fileReader.connectSource("cat " + root.resolvedDataFilePath)
     }
 
     compactRepresentation: CompactRepresentation {
@@ -112,7 +113,7 @@ PlasmoidItem {
         usageData: root.usageData
         providers: root.providers
         errorMessage: root.errorMessage
-        dataFileUrl: root.dataFileUrl
+        dataFileUrl: root.defaultDataFileUrl
     }
 
     Timer {
@@ -121,6 +122,19 @@ PlasmoidItem {
         running: true
         repeat: true
         onTriggered: root.loadUsageData()
+    }
+
+    // ── Configuration change handler ──────────────────────────
+    // Re-load data and refresh timer whenever config changes
+    onConfigurationChanged: {
+        // Recalculate resolved data path (in case dataFilePath changed)
+        root.resolvedDataFilePathChanged()
+
+        // Restart the timer immediately with the new interval
+        refreshTimer.restart()
+
+        // Force providers list refresh
+        root.loadUsageData()
     }
 
     Component.onCompleted: root.loadUsageData()

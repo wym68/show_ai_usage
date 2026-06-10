@@ -16,6 +16,9 @@ Item {
 
     readonly property int staleThreshold: (Plasmoid.configuration.staleThreshold || 600) * 1000  // ms
 
+    // Display mode from config
+    readonly property int _displayMode: Plasmoid.configuration.displayMode || 0
+
     implicitWidth: Kirigami.Units.gridUnit * 20
     implicitHeight: Kirigami.Units.gridUnit * 24
 
@@ -23,13 +26,23 @@ Item {
 
     function percent(provider, key) {
         var value = Number(provider && provider[key])
-        if (isNaN(value)) {
-            return 0
-        }
+        if (isNaN(value)) return 0
         return Math.max(0, Math.min(100, value))
     }
 
     function usageColor(value) {
+        var theme = Plasmoid.configuration.colorTheme || 0
+        if (theme === 1) { // colorblind-friendly
+            return value >= 95 ? "#9C27B0" : value >= 80 ? "#F44336" : value >= 50 ? "#FF9800" : "#2196F3"
+        }
+        if (theme === 2) { // custom
+            var cLow = Plasmoid.configuration.customColorLow || "#4CAF50"
+            var cMid = Plasmoid.configuration.customColorMid || "#FFC107"
+            var cHigh = Plasmoid.configuration.customColorHigh || "#FF9800"
+            var cCrit = Plasmoid.configuration.customColorCritical || "#F44336"
+            return value >= 95 ? cCrit : value >= 80 ? cHigh : value >= 50 ? cMid : cLow
+        }
+        // default
         if (value >= 95) return "#F44336"
         if (value >= 80) return "#FF9800"
         if (value >= 50) return "#FFC107"
@@ -74,6 +87,18 @@ Item {
         var fetched = new Date(usageData.fetched_at).getTime()
         if (isNaN(fetched)) return false
         return (now - fetched) > root.staleThreshold
+    }
+
+    // Filter providers based on display mode
+    readonly property var _filteredProviders: {
+        var list = root.providers || []
+        if (root._displayMode === 0) return list // show all
+        return list.filter(function(p) {
+            if (p.error) return true
+            if (root._displayMode === 1) return !isNaN(Number(p.window_5h_percent))
+            if (root._displayMode === 2) return !isNaN(Number(p.window_7d_percent))
+            return true
+        })
     }
 
     /* ── UI ───────────────────────────────────────────────── */
@@ -127,7 +152,7 @@ Item {
                 Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: emptyColumn.implicitHeight
-                    visible: !root.providers || root.providers.length === 0
+                    visible: !root._filteredProviders || root._filteredProviders.length === 0
 
                     ColumnLayout {
                         id: emptyColumn
@@ -152,7 +177,7 @@ Item {
 
                 /* Provider cards */
                 Repeater {
-                    model: root.providers || []
+                    model: root._filteredProviders
 
                     Rectangle {
                         id: providerCard
@@ -183,6 +208,7 @@ Item {
                             }
 
                             UsageRow {
+                                visible: root._displayMode !== 2
                                 Layout.fillWidth: true
                                 label: "5h:"
                                 value: providerCard.fiveHourPercent
@@ -191,6 +217,7 @@ Item {
                             }
 
                             UsageRow {
+                                visible: root._displayMode !== 1
                                 Layout.fillWidth: true
                                 label: "7d:"
                                 value: providerCard.sevenDayPercent
@@ -200,14 +227,20 @@ Item {
 
                             LabelLine {
                                 Layout.fillWidth: true
-                                visible: provider && provider.reset_5h !== null && provider.reset_5h !== undefined && String(provider.reset_5h).length > 0
+                                visible: root._displayMode !== 2
+                                    && provider && provider.reset_5h !== null
+                                    && provider.reset_5h !== undefined
+                                    && String(provider.reset_5h).length > 0
                                 label: "重置(5h):"
                                 value: provider && provider.reset_5h ? String(provider.reset_5h) : ""
                             }
 
                             LabelLine {
                                 Layout.fillWidth: true
-                                visible: provider && provider.reset_7d !== null && provider.reset_7d !== undefined && String(provider.reset_7d).length > 0
+                                visible: root._displayMode !== 1
+                                    && provider && provider.reset_7d !== null
+                                    && provider.reset_7d !== undefined
+                                    && String(provider.reset_7d).length > 0
                                 label: "重置(7d):"
                                 value: provider && provider.reset_7d ? String(provider.reset_7d) : ""
                             }
@@ -237,7 +270,6 @@ Item {
                 icon.name: "view-refresh"
                 text: "刷新"
                 onClicked: {
-                    // Plasmoid.rootItem is the PlasmoidItem from main.qml
                     if (Plasmoid.rootItem && typeof Plasmoid.rootItem.loadUsageData === "function") {
                         Plasmoid.rootItem.loadUsageData()
                     }

@@ -1,10 +1,14 @@
 """SHOW AI USAGE — CLI entry point for the subscription data poller."""
 
 import argparse
+import logging
+import signal
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from poller.logger import get_logger, setup_logging
 
 # Ensure the project root is on sys.path so that ``poller.*`` imports work
 # when the script is invoked directly (``python poller/main.py``).
@@ -16,12 +20,14 @@ from poller.browser import BROWSER_DATA_DIR, ManagedBrowser, get_system_timezone
 from poller.config import CONFIG_FILE, init_default_config, load_config, merge_cli_overrides
 from poller.storage import load_results, save_results
 
+log = get_logger(__name__)
+
 _running = True
 
 
 def _signal_handler(signum: int, _frame: object) -> None:
     global _running
-    print(f"\n  Caught signal {signum}, shutting down gracefully...")
+    log.warning("Caught signal %d, shutting down gracefully...", signum)
     _running = False
 
 
@@ -51,21 +57,20 @@ def _handle_login(config, provider: str = "codex") -> None:
     """Open the isolated browser for manual login to a provider."""
     login_url = LOGIN_URLS.get(provider)
     if not login_url:
-        print(f"✗ Unknown provider '{provider}'. Available: {', '.join(sorted(LOGIN_URLS))}")
+        log.error("Unknown provider '%s'. Available: %s", provider, ", ".join(sorted(LOGIN_URLS)))
         return
 
     display_name = {"codex": "OpenAI Codex", "claude": "Claude", "kimi": "Kimi", "minimax": "MiniMax"}
 
     browser_dir = _get_browser_data_dir(config.browser_data_dir)
     resolved_timezone = config.timezone or get_system_timezone()
-    print("[1/3] Starting isolated Edge browser (project profile) ...")
-    print(f"      Profile: {browser_dir}")
+    log.info("Starting isolated Edge browser (profile: %s)", browser_dir)
 
     with ManagedBrowser(headless=False, data_dir=browser_dir, timezone=resolved_timezone) as browser:
         context = browser.get_context()
         page = context.new_page()
 
-        print(f"\n[2/3] Navigating to {login_url} ...")
+        log.info("Navigating to %s ...", login_url)
         page.goto(
             login_url,
             wait_until="domcontentloaded",
@@ -83,14 +88,14 @@ def _handle_login(config, provider: str = "codex") -> None:
         input()
 
         page.close()
-        print(f"\n[3/3] ✓ Profile saved. You can now run `--oneshot --providers {provider}`.\n")
+        log.info("Profile saved. You can now run --oneshot --providers %s.", provider)
 
 
-def _poll(provider_names: list[str], config) -> list[dict]:
+def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
     """Shared logic: open browser, poll providers, return results list."""
     browser_dir = _get_browser_data_dir(config.browser_data_dir)
     if not browser_dir.exists():
-        print("✗ No browser profile found. Run `--login` first.")
+        log.error("No browser profile found at %s. Run --login first.", browser_dir)
         sys.exit(1)
 
     from poller.providers import get_enabled_providers
@@ -99,20 +104,22 @@ def _poll(provider_names: list[str], config) -> list[dict]:
     providers = get_enabled_providers(provider_names, timezone_id=resolved_timezone)
 
     if not providers:
-        print("  (no providers enabled)")
+        log.warning("No providers enabled.")
         return []
 
-    results: list[dict] = []
+    results: list[dict[str, object]] = []
     with ManagedBrowser(headless=True, data_dir=browser_dir, timezone=resolved_timezone) as browser:
         context = browser.get_context()
         for provider in providers:
-            print(f"  Polling {provider.name} ...", end=" ", flush=True)
+            log.info("Polling %s ...", provider.name)
             try:
                 data = provider.fetch(context)
                 results.append(data.model_dump(mode="json"))
-                print(
-                    f"✓  5h={data.window_5h_percent:.0f}%  "
-                    f"7d={data.window_7d_percent:.0f}%"
+                log.info(
+                    "%s ✓  5h=%.0f%%  7d=%.0f%%",
+                    provider.name,
+                    data.window_5h_percent,
+                    data.window_7d_percent,
                 )
             except Exception as exc:
                 results.append(
@@ -123,10 +130,9 @@ def _poll(provider_names: list[str], config) -> list[dict]:
                         "window_7d_percent": None,
                     }
                 )
-                print(f"✗  {exc}")
+                log.error("%s ✗  %s", provider.name, exc)
             # Small delay between providers to let Playwright fully clean up pages
-            import time as _time
-            _time.sleep(1)
+            time.sleep(1)
     return results
 
 
@@ -135,18 +141,18 @@ def _handle_oneshot(provider_names: list[str], config) -> None:
     results = _poll(provider_names, config)
     if results:
         save_results(results, data_dir=config.data_dir)
-        print(f"\nResults written to storage ({len(results)} providers).")
+        log.info("Results written to storage (%d providers).", len(results))
     else:
-        print("\nNothing to save.")
+        log.warning("Nothing to save.")
 
 
 def _handle_debug_dump(provider_names: list[str], config) -> None:
     """Open each provider's dashboard in a headed browser and dump the page content."""
-    print("=== DEBUG MODE: dumping page content ===\n")
+    log.info("=== DEBUG MODE: dumping page content ===")
 
     browser_dir = _get_browser_data_dir(config.browser_data_dir)
     if not browser_dir.exists():
-        print("✗ No browser profile found. Run `--login` first.")
+        log.error("No browser profile found at %s. Run --login first.", browser_dir)
         sys.exit(1)
 
     PROVIDER_URLS: dict[str, str] = {
@@ -169,14 +175,14 @@ def _handle_debug_dump(provider_names: list[str], config) -> None:
         for provider in providers:
             url = PROVIDER_URLS.get(provider.name)
             if not url:
-                print(f"\n✗ No debug URL configured for {provider.name}")
+                log.warning("No debug URL configured for %s", provider.name)
                 continue
 
-            print(f"\n--- {provider.name} -> {url} ---")
+            log.info("--- %s -> %s ---", provider.name, url)
             page = context.new_page()
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                print("  Waiting for page to render (up to 45s)...")
+                log.info("Waiting for page to render (up to 45s)...")
                 for _ in range(30):
                     title = page.title()
                     if title not in {"请稍候…", "Just a moment...", "Please wait...", ""}:
@@ -189,45 +195,43 @@ def _handle_debug_dump(provider_names: list[str], config) -> None:
                 text = page.evaluate("document.body?.innerText || ''")
                 (dump_dir / f"{provider.name}.txt").write_text(text)
                 page.screenshot(path=str(dump_dir / f"{provider.name}.png"))
-                print(f"  → Saved: {dump_dir}/{provider.name}.{{html,txt,png}}")
-                print(f"  → Page title: {page.title()}")
-                print(f"  → Body text length: {len(text)} chars")
+                log.info("Saved: %s/%s.{html,txt,png}", dump_dir, provider.name)
+                log.info("Page title: %s", page.title())
+                log.info("Body text length: %d chars", len(text))
 
                 if text.strip():
                     try:
                         data = provider.fetch(context)
-                        print(f"  → Parse result: {data.model_dump_json()}")
+                        log.info("Parse result: %s", data.model_dump_json())
                     except Exception as exc:
-                        print(f"  → Parse failed: {exc}")
+                        log.error("Parse failed: %s", exc)
                 else:
-                    print("  → Body empty — page likely still loading or blocked.")
+                    log.warning("Body empty — page likely still loading or blocked.")
             except Exception as e:
-                print(f"  → Error: {e}")
+                log.error("Error dumping %s: %s", provider.name, e)
             finally:
                 page.close()
 
 
 def _handle_daemon(provider_names: list[str], config) -> None:
     """Run in a loop, polling providers every *config.interval* seconds."""
-    import signal as _signal
-
-    _signal.signal(_signal.SIGINT, _signal_handler)
-    _signal.signal(_signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
     browser_dir = _get_browser_data_dir(config.browser_data_dir)
     if not browser_dir.exists():
-        print("✗ No browser profile found. Run `--login` first.")
+        log.error("No browser profile found at %s. Run --login first.", browser_dir)
         sys.exit(1)
 
     interval = config.interval
 
-    print(f"Daemon started — polling {len(provider_names)} provider(s) every {interval}s")
-    print(f"  Config: {CONFIG_FILE}")
-    print("  Press Ctrl+C to stop.\n")
+    log.info("Daemon started — polling %d provider(s) every %ds", len(provider_names), interval)
+    log.info("Config: %s", CONFIG_FILE)
+    log.info("Press Ctrl+C to stop.")
 
     while _running:
         cycle_start = time.time()
-        print(f"[{datetime.now():%H:%M:%S}] Polling ...", end=" ", flush=True)
+        log.info("[%s] Polling ...", datetime.now().strftime("%H:%M:%S"))
         results = _poll(provider_names, config)
         if results:
             save_results(results, data_dir=config.data_dir)
@@ -235,9 +239,9 @@ def _handle_daemon(provider_names: list[str], config) -> None:
         sleep = max(0, interval - elapsed)
         if _running and sleep > 0:
             time.sleep(sleep)
-        print(f"({elapsed:.0f}s)")
+        log.info("Cycle completed (%.0fs)", elapsed)
 
-    print("Daemon stopped.")
+    log.info("Daemon stopped.")
 
 
 def _handle_status(config, json_output: bool = False) -> None:
@@ -365,6 +369,12 @@ def cli() -> None:
         interval=args.interval,
         providers=args.providers,
     )
+
+    # Initialise logging based on config
+    level = "DEBUG" if args.debug else cfg.log_level
+    setup_logging(level)
+
+    log.debug("Configuration loaded: %s", cfg.model_dump_json(indent=2))
 
     if args.show_config:
         print(cfg.model_dump_json(indent=2))
