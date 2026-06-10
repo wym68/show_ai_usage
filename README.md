@@ -4,6 +4,8 @@ KDE Plasma 6 任务栏小部件，监控 **OpenAI Codex、Claude Code、Kimi、M
 
 > 详细的开发文档、架构说明和 Provider 实现细节见 [Doc.md](Doc.md)。
 
+**注意本项目完全由AI开发,请自行注意保护个人隐私!**
+
 ---
 
 ## 项目目的
@@ -15,7 +17,7 @@ AI 编程助手普遍采用订阅制 + 滚动窗口限流的模式（5 小时会
 ## 实现逻辑
 
 ```
-systemd timer（每 5 分钟）
+systemd timer（每 X 分钟）
     └─▶ Python Poller（Playwright + Edge）
             └─▶ 访问各平台用量页面 → 提取 5h/7d 百分比 + 重置时间
                     └─▶ 写入 ~/.local/share/show-ai-usage/data.json
@@ -28,6 +30,10 @@ systemd timer（每 5 分钟）
 
 ### 面板显示
 
+![效果图](fig/效果图.png)
+
+### 面板显示
+
 | 颜色 | 用量 | 含义 |
 |------|------|------|
 | 🟢 绿 | 0–50% | 健康 |
@@ -37,6 +43,7 @@ systemd timer（每 5 分钟）
 
 进度条字母含义：`O` = OpenAI Codex，`C` = Claude Code，`K` = Kimi，`M` = MiniMax。
 
+彩色用量条右上角的圆圈表示当前显示的是7天用量。当7天用量超过85%时会自动切换为显示7天用量，否则为自动显示5小时用量。
 ---
 
 ## 前置依赖
