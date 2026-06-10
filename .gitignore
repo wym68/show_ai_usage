@@ -33,3 +33,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# AI
+.omo/
+.claude/

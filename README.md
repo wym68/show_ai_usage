@@ -35,7 +35,7 @@ systemd timer（每 5 分钟）
 | 🟠 橙 | 80–95% | 警告 |
 | 🔴 红 | 95–100% | 即将限速 |
 
-进度条字母含义：`C` = OpenAI Codex，`D` = Claude Code，`K` = Kimi，`M` = MiniMax。
+进度条字母含义：`O` = OpenAI Codex，`C` = Claude Code，`K` = Kimi，`M` = MiniMax。
 
 ---
 

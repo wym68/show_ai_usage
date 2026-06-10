@@ -71,7 +71,7 @@ Item {
         return v >= 95 ? "#F44336" : v >= 80 ? "#FF9800" : v >= 50 ? "#FFC107" : "#4CAF50"
     }
     function _label(p) {
-        var m = {"codex":"C", "claude":"D", "kimi":"K", "minimax":"M"}
+        var m = {"codex":"O", "claude":"C", "kimi":"K", "minimax":"M"}
         return p && p.provider ? (m[p.provider] || "?") : "?"
     }
 
