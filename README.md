@@ -72,7 +72,7 @@ cd ~/show-ai-usage
 ### 方式二：从源码安装
 
 ```bash
-git clone <仓库地址> show-ai-usage
+git clone https://github.com/wym68/show_ai_usage.git show-ai-usage
 cd show-ai-usage
 ./scripts/install.sh
 ```
