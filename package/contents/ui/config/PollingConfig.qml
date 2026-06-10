@@ -22,7 +22,8 @@ KCM.AbstractKCM {
     function updateProvidersString() {
         var checked = []
         for (var i = 0; i < providerRepeater.count; i++) {
-            var checkbox = providerRepeater.itemAt(i)
+            var row = providerRepeater.itemAt(i)
+            var checkbox = row ? row.children[0] : null
             if (checkbox && checkbox.checked) {
                 checked.push(providerList[i].id)
             }
@@ -33,7 +34,8 @@ KCM.AbstractKCM {
     function applyProvidersString(str) {
         var ids = str.split(",").map(function(s) { return s.trim() })
         for (var i = 0; i < providerRepeater.count; i++) {
-            var checkbox = providerRepeater.itemAt(i)
+            var row = providerRepeater.itemAt(i)
+            var checkbox = row ? row.children[0] : null
             if (checkbox) {
                 checkbox.checked = ids.indexOf(providerList[i].id) >= 0
             }
@@ -142,7 +144,6 @@ KCM.AbstractKCM {
         QQC2.TextField {
             id: providersField
             visible: false
-            onTextChanged: pollingConfigRoot.applyProvidersString(text)
         }
 
         QQC2.Label {
