@@ -99,8 +99,7 @@ echo "[3/5] Copying poller files ..."
 POLLER_DIR="$OUTPUT_DIR/poller"
 mkdir -p "$POLLER_DIR"
 
-# Copy Python package
-cp -r poller "$POLLER_DIR/"
+cp -r poller "$OUTPUT_DIR/"
 
 # Copy Python project files
 cp pyproject.toml "$OUTPUT_DIR/"
