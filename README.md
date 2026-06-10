@@ -44,28 +44,37 @@ systemd timer（每 5 分钟）
 - Python ≥ 3.11 + [uv](https://docs.astral.sh/uv/)
 - Microsoft Edge（Playwright 驱动）
 - KDE Plasma ≥ 6.0
+- systemd --user（用于后台定时抓取）
 
 ---
 
 ## 安装
 
-### 1. 安装 Python 依赖
+### 方式一：从发布包安装（推荐）
+
+1. 下载并解压发布包到任意目录（如 `~/show-ai-usage/`）
+2. 进入目录并运行安装脚本：
 
 ```bash
-uv sync
+cd ~/show-ai-usage
+./install.sh
 ```
 
-### 2. 初始化配置
+3. 安装后，右键桌面 → **添加小部件** → 搜索 "AI Usage Monitor" → 拖到面板上
+
+### 方式二：从源码安装
 
 ```bash
-uv run python -m poller.main --init-config
+git clone <仓库地址> show-ai-usage
+cd show-ai-usage
+./scripts/install.sh
 ```
 
-配置文件生成于 `~/.config/show-ai-usage/config.toml`。
+### 首次使用 — 登录各平台
 
-### 3. 登录各平台
+> **安装路径说明**：Plasmoid 小部件和 Python 轮询器是分开安装的——小部件通过 `kpackagetool6` 安装到 `~/.local/share/plasma/plasmoids/`，而 Python 项目留在你解压的目录里。因此所有 `uv run python -m poller.main` 命令都需要在**项目目录**下运行。
 
-每个平台首次使用前需在隔离浏览器中手动登录一次，登录态保存在 `browser-data/` 中：
+首次使用前，需在隔离浏览器中手动登录各 AI 平台（登录态保存在 `~/.local/share/show-ai-usage/browser-data/`）：
 
 ```bash
 uv run python -m poller.main --login codex
@@ -74,50 +83,61 @@ uv run python -m poller.main --login kimi
 uv run python -m poller.main --login minimax
 ```
 
-### 4. 测试抓取
+执行命令后会弹出浏览器窗口，手动完成登录后，回到终端按 **Enter** 保存登录态。
+
+### 测试抓取
 
 ```bash
+# 手动抓取一次
 uv run python -m poller.main --oneshot
-uv run python -m poller.main --status   # 查看结果
+
+# 查看最新数据
+uv run python -m poller.main --status
 ```
-
-### 5. 安装 Plasmoid 和 systemd 定时任务
-
-```bash
-./scripts/install.sh
-```
-
-脚本会自动安装 Plasmoid 并启动 systemd timer（每 5 分钟自动抓取）。
-
-安装后，右键桌面 → **添加小部件** → 搜索 "AI Usage Monitor" → 拖到面板上。
 
 ---
 
 ## 卸载
 
 ```bash
-./scripts/uninstall.sh          # 停止 timer + 卸载 Plasmoid
+./scripts/uninstall.sh          # 停止 timer + 卸载 Plasmoid（保留配置和数据）
 ./scripts/uninstall.sh --purge  # 同上 + 删除配置文件和数据文件
 ```
+
+> **注意**：卸载后任务栏上的小部件可能仍会显示（显示 N/A），需要手动右键小部件 → **移除**，或运行 `plasmashell --replace` 重启面板。
 
 ---
 
 ## 配置
 
-`~/.config/show-ai-usage/config.toml`：
+### Plasmoid 配置面板
+
+右键小部件 → **配置**，包含四个标签页：
+
+| 标签页 | 配置项 |
+|--------|--------|
+| **General** | 界面刷新间隔（秒）、数据过期阈值（秒） |
+| **Data Polling** | 启用/禁用数据抓取、抓取间隔、选择监控的 AI 服务商 |
+| **Display** | 显示模式（5h+7d / 仅5h / 仅7d）、紧凑标签、最大显示数 |
+| **Advanced** | 自定义数据路径、配色方案、自定义颜色 |
+
+在 **Data Polling** 标签页中：
+- 勾选「启用自动数据抓取」后，插件会按设定间隔自动抓取
+- 勾选/取消勾选提供商会**即时生效**（显示端自动过滤，后台配置自动同步）
+- 每个提供商右侧显示对应的登录命令，点击「复制」可直接粘贴到终端执行
+
+### 配置文件
+
+`~/.config/show-ai-usage/config.toml`（由 Plasmoid 自动管理，一般无需手动编辑）：
 
 ```toml
 [general]
-interval = 300                                          # 守护模式抓取间隔（秒）
+interval = 300                                          # 抓取间隔（秒）
 enabled_providers = ["codex", "claude", "kimi", "minimax"]  # 启用的服务
 
 [locale]
 # timezone = "Asia/Shanghai"  # 浏览器时区，留空自动检测
 ```
-
-Plasmoid 内置配置（右键小部件 → 配置）：
-- **界面刷新间隔**：重新读取 JSON 的频率，默认 60 秒
-- **数据过期阈值**：超过此时间未更新则显示 ⚠ 警告，默认 600 秒
 
 ---
 
@@ -140,4 +160,7 @@ systemctl --user start show-ai-usage.service
 # 更新 Plasmoid（修改 QML 后）
 kpackagetool6 --type Plasma/Applet --upgrade package/
 plasmashell --replace &
+
+# 构建发布包（生成 dist/ 目录）
+./scripts/build-plugin.sh
 ```

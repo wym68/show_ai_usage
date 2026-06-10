@@ -111,3 +111,8 @@ esac
 echo ""
 
 echo "✅  Uninstall complete."
+echo ""
+echo "⚠️  Note: The widget may still appear on your panel (showing N/A)."
+echo "   To remove it:"
+echo "     1. Right-click the widget on your panel → Remove 'AI Usage Monitor'"
+echo "     2. Or restart Plasma Shell: plasmashell --replace"

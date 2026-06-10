@@ -46,6 +46,23 @@ echo "   Project: $PROJECT_DIR"
 [[ "$DRY_RUN" == true ]] && echo "   Mode:    DRY RUN (no changes will be made)"
 echo ""
 
+# ── Detect install mode ────────────────────────────────────────
+# Plugin package mode: has .plasmoid file in current directory
+# Development mode: has package/ directory
+PLUGIN_PACKAGE=""
+if ls "$PROJECT_DIR"/*.plasmoid 1> /dev/null 2>&1; then
+    PLUGIN_PACKAGE=$(ls "$PROJECT_DIR"/*.plasmoid | head -n 1)
+    echo "   Mode:    Plugin package ($PLUGIN_PACKAGE)"
+    INSTALL_MODE="package"
+elif [ -d "$PROJECT_DIR/package" ]; then
+    echo "   Mode:    Development (from source)"
+    INSTALL_MODE="source"
+else
+    echo "   Mode:    Unknown — neither .plasmoid nor package/ found"
+    INSTALL_MODE="unknown"
+fi
+echo ""
+
 # ── 0. Pre-flight checks ───────────────────────────────────────
 echo "[0/5] Checking dependencies ..."
 FAILED=false
@@ -98,8 +115,9 @@ if [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
     exit 1
 fi
 
-if [ ! -d "$PROJECT_DIR/package" ]; then
-    echo "✗  No package/ directory — Plasmoid files missing."
+if [ "$INSTALL_MODE" = "unknown" ]; then
+    echo "✗  Neither package/ directory nor .plasmoid file found."
+    echo "   If installing from a release package, ensure the .plasmoid file is present."
     exit 1
 fi
 echo "      ✓  Project structure valid"
@@ -135,12 +153,24 @@ echo ""
 
 # ── 3. Install / upgrade Plasmoid ─────────────────────────────
 echo "[3/5] Installing Plasmoid (kpackagetool6) ..."
-if kpackagetool6 --type Plasma/Applet --show "$PLASMOID_ID" &>/dev/null; then
-    kpackagetool6 --type Plasma/Applet --upgrade "$PROJECT_DIR/package"
-    echo "      ✓  Upgraded existing Plasmoid"
+if [ "$INSTALL_MODE" = "package" ] && [ -n "$PLUGIN_PACKAGE" ]; then
+    # Plugin package mode: install from .plasmoid file
+    if kpackagetool6 --type Plasma/Applet --show "$PLASMOID_ID" &>/dev/null; then
+        kpackagetool6 --type Plasma/Applet --upgrade "$PLUGIN_PACKAGE"
+        echo "      ✓  Upgraded existing Plasmoid from package"
+    else
+        kpackagetool6 --type Plasma/Applet --install "$PLUGIN_PACKAGE"
+        echo "      ✓  Installed new Plasmoid from package"
+    fi
 else
-    kpackagetool6 --type Plasma/Applet --install "$PROJECT_DIR/package"
-    echo "      ✓  Installed new Plasmoid"
+    # Development mode: install from package/ directory
+    if kpackagetool6 --type Plasma/Applet --show "$PLASMOID_ID" &>/dev/null; then
+        kpackagetool6 --type Plasma/Applet --upgrade "$PROJECT_DIR/package"
+        echo "      ✓  Upgraded existing Plasmoid from source"
+    else
+        kpackagetool6 --type Plasma/Applet --install "$PROJECT_DIR/package"
+        echo "      ✓  Installed new Plasmoid from source"
+    fi
 fi
 echo ""
 
@@ -210,7 +240,8 @@ echo ""
 echo "✅  Installation complete!"
 echo ""
 echo "   → Add the widget to your panel: right-click panel → Add Widget → AI Usage Monitor"
+echo "   → Configure polling: right-click widget → Configure → Data Polling"
 echo "   → Login to providers: uv run python -m poller.main --login <provider>"
 echo "   → Run once: uv run python -m poller.main --oneshot"
 echo "   → View data: uv run python -m poller.main --status"
-echo "   → Edit config: $HOME/.config/show-ai-usage/config.toml"
+echo "   → Edit config manually: $HOME/.config/show-ai-usage/config.toml"

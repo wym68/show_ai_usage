@@ -39,6 +39,23 @@
     </entry>
   </group>
 
+  <group name="Polling">
+    <entry name="pollingEnabled" type="Bool">
+      <label>启用数据抓取</label>
+      <default>true</default>
+    </entry>
+    <entry name="pollingInterval" type="Int">
+      <label>数据抓取间隔（秒）</label>
+      <default>300</default>
+      <min>60</min>
+      <max>3600</max>
+    </entry>
+    <entry name="enabledProviders" type="String">
+      <label>启用的数据提供商</label>
+      <default>codex,claude,kimi,minimax</default>
+    </entry>
+  </group>
+
   <group name="Advanced">
     <entry name="dataFilePath" type="String">
       <label>自定义数据文件路径</label>

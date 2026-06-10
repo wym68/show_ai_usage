@@ -8,6 +8,11 @@ ConfigModel {
         source: "config/GeneralConfig.qml"
     }
     ConfigCategory {
+        name: "Data Polling"
+        icon: "preferences-system-network"
+        source: "config/PollingConfig.qml"
+    }
+    ConfigCategory {
         name: "Display"
         icon: "preferences-desktop-display"
         source: "config/DisplayConfig.qml"

@@ -14,8 +14,23 @@ PlasmoidItem {
     Layout.preferredWidth: 4 * Kirigami.Units.gridUnit * 4 + 3 * Kirigami.Units.smallSpacing
 
     property var usageData: ({ "providers": [] })
-    property var providers: usageData && usageData.providers ? usageData.providers : []
     property string errorMessage: ""
+
+    // Parse enabled providers from config (comma-separated string)
+    property var _enabledProviderIds: {
+        var raw = Plasmoid.configuration.enabledProviders || ""
+        return raw.split(",").map(function(s) { return s.trim() }).filter(function(s) { return s.length > 0 })
+    }
+
+    // Filter providers to only show enabled ones
+    property var providers: {
+        var all = usageData && usageData.providers ? usageData.providers : []
+        var enabled = _enabledProviderIds
+        if (enabled.length === 0) return []
+        return all.filter(function(p) {
+            return enabled.indexOf(p.provider) >= 0
+        })
+    }
 
     // Resolve data file path: custom or default
     readonly property string defaultDataFileUrl: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/show-ai-usage/data.json"
@@ -128,5 +143,63 @@ PlasmoidItem {
     // Re-load data when the resolved file path changes.
     onResolvedDataFilePathChanged: root.loadUsageData()
 
-    Component.onCompleted: root.loadUsageData()
+    // ── Polling config sync ───────────────────────────────────────
+
+    property var _lastPollingConfig: ({ enabled: null, interval: null, providers: null })
+
+    function _syncPollingConfig() {
+        var enabled = Plasmoid.configuration.pollingEnabled || false
+        var interval = Plasmoid.configuration.pollingInterval || 300
+        var providers = Plasmoid.configuration.enabledProviders || "codex,claude,kimi,minimax"
+
+        // Debounce: only sync if something actually changed
+        if (_lastPollingConfig.enabled === enabled &&
+            _lastPollingConfig.interval === interval &&
+            _lastPollingConfig.providers === providers) {
+            return
+        }
+
+        _lastPollingConfig = { enabled: enabled, interval: interval, providers: providers }
+
+        var scriptPath = Plasmoid.file("scripts/sync_config.py")
+        var cmd
+        if (enabled) {
+            cmd = "python3 " + scriptPath + " --enable --interval " + interval + " --providers " + providers
+        } else {
+            cmd = "python3 " + scriptPath + " --disable"
+        }
+        configSyncExecutor.connectSource(cmd)
+    }
+
+    Plasma5Support.DataSource {
+        id: configSyncExecutor
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: {
+            var stdout = data["stdout"] || ""
+            var stderr = data["stderr"] || ""
+            if (stderr.length > 0) {
+                console.log("[ShowAIUsage] Config sync stderr:", stderr)
+            }
+            if (stdout.length > 0) {
+                console.log("[ShowAIUsage] Config sync:", stdout)
+            }
+            disconnectSource(sourceName)
+        }
+    }
+
+    // Watch polling-related config entries for changes
+    property bool _pollingEnabled: Plasmoid.configuration.pollingEnabled || false
+    property int _pollingInterval: Plasmoid.configuration.pollingInterval || 300
+    property string _enabledProviders: Plasmoid.configuration.enabledProviders || "codex,claude,kimi,minimax"
+
+    on_PollingEnabledChanged: _syncPollingConfig()
+    on_PollingIntervalChanged: _syncPollingConfig()
+    on_EnabledProvidersChanged: _syncPollingConfig()
+
+    Component.onCompleted: {
+        root.loadUsageData()
+        _syncPollingConfig()
+    }
 }
