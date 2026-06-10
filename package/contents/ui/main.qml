@@ -124,18 +124,9 @@ PlasmoidItem {
         onTriggered: root.loadUsageData()
     }
 
-    // ── Configuration change handler ──────────────────────────
-    // Re-load data and refresh timer whenever config changes
-    onConfigurationChanged: {
-        // Recalculate resolved data path (in case dataFilePath changed)
-        root.resolvedDataFilePathChanged()
-
-        // Restart the timer immediately with the new interval
-        refreshTimer.restart()
-
-        // Force providers list refresh
-        root.loadUsageData()
-    }
+    // Plasma 6: PlasmoidItem has no configurationChanged signal.
+    // Re-load data when the resolved file path changes.
+    onResolvedDataFilePathChanged: root.loadUsageData()
 
     Component.onCompleted: root.loadUsageData()
 }
