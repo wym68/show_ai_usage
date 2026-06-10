@@ -5,7 +5,9 @@ Documentation=https://github.com/your/project
 [Timer]
 # First run 2 minutes after boot
 OnBootSec=2min
-# Subsequent runs 10 minutes after the previous run completes
+# Also trigger 2 minutes after timer is started/reloaded
+OnActiveSec=2min
+# Subsequent runs 3 minutes after the previous run completes
 OnUnitActiveSec=3min
 # Catch up after sleep / hibernation
 Persistent=true
