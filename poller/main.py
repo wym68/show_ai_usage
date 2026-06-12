@@ -7,6 +7,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 from poller.logger import get_logger, setup_logging
 
@@ -102,7 +103,7 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
     direct-API runs complete without ever instantiating Playwright.
     """
     from poller.providers import get_enabled_providers
-    from poller.providers.base import UsageData
+    from poller.providers.base import BaseProvider, UsageData
     from poller.providers.direct import DirectFetchProvider
 
     resolved_timezone = config.timezone or get_system_timezone()
@@ -112,21 +113,21 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
         log.warning("No providers enabled.")
         return []
 
-    direct_providers = [
-        p for p in providers
-        if isinstance(p, DirectFetchProvider) and p.supports_direct_fetch
-    ]
-    browser_providers = [
-        p for p in providers
-        if not (isinstance(p, DirectFetchProvider) and p.supports_direct_fetch)
-    ]
+    results_by_index: dict[int, dict[str, object]] = {}
+    browser_queue: list[tuple[int, BaseProvider]] = []
 
-    results: list[dict[str, object]] = []
+    for index, provider in enumerate(providers):
+        is_direct_capable = (
+            isinstance(provider, DirectFetchProvider) and provider.supports_direct_fetch
+        )
+        if not is_direct_capable:
+            browser_queue.append((index, provider))
+            continue
 
-    for provider in direct_providers:
+        direct_provider = cast(DirectFetchProvider, provider)
         log.info("Polling %s (direct API) ...", provider.name)
         try:
-            data = provider.fetch_direct(config)
+            data = direct_provider.fetch_direct(config)
         except Exception as exc:
             log.error("%s ✗  %s", provider.name, exc)
             data = UsageData(
@@ -135,10 +136,15 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
                 window_7d_percent=0.0,
                 error=str(exc),
             )
-        results.append(data.model_dump(mode="json"))
+
         if data.error:
             log.error("%s ✗  %s", provider.name, data.error)
+            if config.direct_fetch_browser_fallback:
+                browser_queue.append((index, provider))
+            else:
+                results_by_index[index] = data.model_dump(mode="json")
         else:
+            results_by_index[index] = data.model_dump(mode="json")
             log.info(
                 "%s ✓  5h=%.0f%%  7d=%.0f%%",
                 provider.name,
@@ -147,8 +153,8 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
             )
         time.sleep(1)
 
-    if not browser_providers:
-        return results
+    if not browser_queue:
+        return [results_by_index[index] for index in range(len(providers))]
 
     browser_dir = _get_browser_data_dir(config.browser_data_dir)
     if not browser_dir.exists():
@@ -157,11 +163,11 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
 
     with ManagedBrowser(headless=True, data_dir=browser_dir, timezone=resolved_timezone) as browser:
         context = browser.get_context()
-        for provider in browser_providers:
+        for index, provider in browser_queue:
             log.info("Polling %s ...", provider.name)
             try:
                 data = provider.fetch(context)
-                results.append(data.model_dump(mode="json"))
+                results_by_index[index] = data.model_dump(mode="json")
                 log.info(
                     "%s ✓  5h=%.0f%%  7d=%.0f%%",
                     provider.name,
@@ -169,18 +175,16 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
                     data.window_7d_percent,
                 )
             except Exception as exc:
-                results.append(
-                    {
-                        "provider": provider.name,
-                        "error": str(exc),
-                        "window_5h_percent": None,
-                        "window_7d_percent": None,
-                    }
-                )
+                results_by_index[index] = {
+                    "provider": provider.name,
+                    "error": str(exc),
+                    "window_5h_percent": None,
+                    "window_7d_percent": None,
+                }
                 log.error("%s ✗  %s", provider.name, exc)
             # Small delay between providers to let Playwright fully clean up pages
             time.sleep(1)
-    return results
+    return [results_by_index[index] for index in range(len(providers))]
 
 
 def _handle_oneshot(provider_names: list[str], config) -> None:

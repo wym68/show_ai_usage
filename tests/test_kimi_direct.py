@@ -270,7 +270,7 @@ def test_fetch_direct_handles_http_error(
     result = KimiProvider().fetch_direct(cfg)
     assert result.error is not None
     assert "401" in result.error
-    assert "Unauthorized" in result.error
+    assert "Unauthorized" not in result.error
     assert "bad-token" not in result.error
 
 
@@ -334,7 +334,7 @@ def test_fetch_direct_error_messages_never_contain_token(
     cfg = Config(kimi_code_access_token="super-secret-987654321")
 
     def fake_urlopen(req, timeout):
-        raise urllib_error(500, "Server Error")
+        raise urllib_error(500, "Server Error: super-secret-987654321")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     result = KimiProvider().fetch_direct(cfg)
@@ -662,12 +662,13 @@ def test_helper_urllib_error_constructor() -> None:
 
 def urllib_error(code: int, reason: str):
     """Build a real ``urllib.error.HTTPError`` without making a network call."""
+    from email.message import Message
     import urllib.error
 
     return urllib.error.HTTPError(
         url=KIMI_USAGES_URL,
         code=code,
         msg=reason,
-        hdrs=None,  # type: ignore[arg-type]
+        hdrs=Message(),
         fp=None,
     )

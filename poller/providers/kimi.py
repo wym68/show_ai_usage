@@ -95,7 +95,7 @@ class KimiProvider(BaseProvider):
             with urllib.request.urlopen(req, timeout=KIMI_HTTP_TIMEOUT) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
-            return self._error_usage(f"Kimi API HTTP {exc.code}: {exc.reason}")
+            return self._error_usage(f"Kimi API HTTP {exc.code}")
         except urllib.error.URLError as exc:
             return self._error_usage(f"Kimi API unreachable: {exc.reason}")
         except TimeoutError:
@@ -410,9 +410,13 @@ def _select_kimi_limit_row(limits: list[Any], *, scope: str) -> dict[str, Any] |
     for entry in limits:
         if not isinstance(entry, dict):
             continue
-        window = entry.get("window") if isinstance(entry.get("window"), dict) else {}
+        window_value = entry.get("window")
+        window = window_value if isinstance(window_value, dict) else {}
         try:
-            duration = int(window.get("duration"))
+            duration_value = window.get("duration")
+            if duration_value is None:
+                raise TypeError
+            duration = int(duration_value)
         except (TypeError, ValueError):
             duration = None
         time_unit = str(window.get("timeUnit") or "").upper()
