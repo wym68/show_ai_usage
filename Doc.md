@@ -772,6 +772,20 @@ env QML_XHR_ALLOW_FILE_READ=1 plasmawindowed showaiusage
 | **Kimi** | Kimi 订阅计划 | 使用量、剩余额度、重置时间 | [kimi.com/code/console](https://www.kimi.com/code/console) |
 | **MiniMax** | Token Plan (Plus / Max / Ultra) | 5小时滚动额度、7天滚动额度、剩余订阅积分 | [platform.minimaxi.com/console/usage](https://platform.minimaxi.com/console/usage) |
 
+### 关于 Kimi / MiniMax 直抓 API（第一阶段）
+
+> **阶段限制**：目前仅 Kimi 与 MiniMax 支持直接 API 抓取；**OpenAI Codex 与 Claude Code 仍保持 browser-backed（基于浏览器）抓取路径**，未提供直抓模式。
+
+| 项 | 说明 |
+|----|------|
+| **Kimi 凭据** | `KIMI_CODE_ACCESS_TOKEN`（环境变量）或 `kimi_code_access_token`（`[general]` 配置） |
+| **MiniMax 凭据** | `MINIMAX_API_KEY`（环境变量）或 `minimax_api_key`（`[general]` 配置） |
+| **MiniMax 接口地址** | `MINIMAX_API_BASE_URL` / `minimax_api_base_url`，默认 `https://api.minimax.io`，可选 `https://api.minimaxi.com` |
+| **直抓失败回退** | 由 `direct_fetch_browser_fallback` 控制，默认 `false`；为 `true` 时直抓失败会回退到浏览器抓取 |
+| **MiniMax 积分余额** | 直抓返回的“mmx quota”/订阅积分与浏览器端一致，但第一阶段不区分订阅积分、充值积分、赠送积分 |
+
+未配置对应凭据时，Kimi / MiniMax 与 Codex / Claude 一样使用浏览器登录抓取。`--show-config` 输出会自动脱敏这些凭据字段，避免泄露。
+
 ---
 
 ## Provider 实现详解

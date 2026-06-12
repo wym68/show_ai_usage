@@ -1,31 +1,367 @@
 """MiniMax Token Plan subscription usage provider.
 
 Target URL: https://platform.minimaxi.com/console/usage
+
+Supports two fetch paths:
+
+1. **Direct API** (preferred when ``MINIMAX_API_KEY`` is configured):
+   ``GET {base_url}/v1/token_plan/remains`` with a Bearer token.
+2. **CLI fallback** (when API key is absent and ``mmx`` is on PATH):
+   ``mmx quota show --output json`` — same JSON schema, no key needed.
+
+When neither path is available, :meth:`fetch_direct` returns a
+:class:`UsageData` whose ``error`` field explains the missing
+credential situation. The poller can then choose to fall back to
+the browser path via :attr:`Config.direct_fetch_browser_fallback`.
 """
 
+import json
 import re
+import shutil
+import subprocess
 import time
-from typing import Tuple
+import urllib.error
+import urllib.request
+from typing import Any
 
 from playwright.sync_api import BrowserContext, Page
 
-from poller.providers.base import BaseProvider, UsageData, format_reset_time
+from poller.config import Config
+from poller.providers.base import BaseProvider, UsageData
 
 MINIMAX_USAGE_URL = "https://platform.minimaxi.com/console/usage"
+MINIMAX_DEFAULT_API_BASE_URL = "https://api.minimax.io"
+MINIMAX_API_PATH = "/v1/token_plan/remains"
+MINIMAX_CLI_BINARY = "mmx"
+MINIMAX_CLI_TIMEOUT = 30
+MINIMAX_HTTP_TIMEOUT = 15
 
 _CHALLENGE_TITLES = {"请稍候…", "Just a moment...", "Please wait...", "请稍候", "Just a moment"}
 _CHALLENGE_TIMEOUT = 45
 
 
+# ---------------------------------------------------------------------------
+# Payload parser — shared by the API and CLI paths
+# ---------------------------------------------------------------------------
+
+_ROW_KEYS = frozenset({
+    "model_name", "model",
+    "usage_count", "used_count", "current_usage",
+    "total_count", "quota_count", "quota",
+    "remains_time", "end_time", "reset_in", "remaining_time",
+    "remains_percent", "remaining_percent", "remain_percent",
+    "weekly",
+    "weekly_remains_time", "weekly_end_time",
+    "weekly_reset_in", "weekly_remaining_time",
+    "weekly_usage_count", "weekly_total_count",
+    "weekly_used_count", "weekly_quota_count",
+    "weekly_current_usage", "weekly_quota",
+    "weekly_remains_percent", "weekly_remaining_percent", "weekly_remain_percent",
+})
+
+
+def _select_model_remains(payload: Any) -> dict | None:
+    """Pick the row whose ``model_name`` contains ``minimax`` (case-insensitive).
+
+    Accepts the three shapes documented by the plan:
+
+    * a single row object (the response IS the row),
+    * ``{"data": <row or list>}`` wrapper,
+    * ``{"model_remains": [...]}`` list (possibly nested under ``data``).
+
+    Returns ``None`` when the payload carries no recognisable row.
+    """
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        if isinstance(payload.get("model_remains"), list):
+            rows = payload["model_remains"]
+        elif "data" in payload:
+            inner = payload["data"]
+            if isinstance(inner, list):
+                rows = inner
+            elif isinstance(inner, dict):
+                if isinstance(inner.get("model_remains"), list):
+                    rows = inner["model_remains"]
+                else:
+                    rows = [inner]
+            else:
+                return None
+        elif payload.keys() & _ROW_KEYS:
+            rows = [payload]
+        else:
+            return None
+    else:
+        return None
+
+    def _name(row: Any) -> str:
+        if not isinstance(row, dict):
+            return ""
+        return str(row.get("model_name") or row.get("model") or "").lower()
+
+    minimax_rows = [r for r in rows if "minimax" in _name(r)]
+    if minimax_rows:
+        return minimax_rows[0]
+    for r in rows:
+        if isinstance(r, dict):
+            return r
+    return None
+
+
+def _resolve_window(row: dict, prefix: str) -> tuple[dict, str]:
+    """Return ``(window_dict, effective_prefix)`` for the given window.
+
+    When a nested ``weekly`` dict is present (for ``prefix="weekly_"``),
+    return it with ``effective_prefix=""`` because nested fields use
+    base names (``remains_percent``, ``remains_time``, ...).
+    Otherwise return ``row`` with the original prefix intact.
+    """
+    if prefix:
+        nested_key = prefix.rstrip("_")
+        nested = row.get(nested_key)
+        if isinstance(nested, dict):
+            return nested, ""
+    return row, prefix
+
+
+def _coerce_percent_from_remains(window: dict, prefix: str) -> float | None:
+    """Compute used-percent from a ``remains_percent``-style field."""
+    for key in (
+        f"{prefix}remains_percent",
+        f"{prefix}remaining_percent",
+        f"{prefix}remain_percent",
+    ):
+        val = window.get(key)
+        if val is None:
+            continue
+        try:
+            remains = float(val)
+        except (TypeError, ValueError):
+            continue
+        return max(0.0, min(100.0, 100.0 - remains))
+    return None
+
+
+def _coerce_percent_from_counts(window: dict, prefix: str) -> float | None:
+    """Compute used-percent from ``usage_count`` / ``total_count``-style fields."""
+    candidates = (
+        (f"{prefix}usage_count", f"{prefix}total_count"),
+        (f"{prefix}used_count", f"{prefix}quota_count"),
+        (f"{prefix}current_usage", f"{prefix}quota"),
+    )
+    for used_key, total_key in candidates:
+        used = window.get(used_key)
+        total = window.get(total_key)
+        if used is None or total is None:
+            continue
+        try:
+            used_f = float(used)
+            total_f = float(total)
+        except (TypeError, ValueError):
+            continue
+        if total_f <= 0:
+            continue
+        return max(0.0, min(100.0, used_f * 100.0 / total_f))
+    return None
+
+
+def _coerce_window_percent(row: dict, prefix: str) -> float | None:
+    """Combined percent lookup: remaining first, counts as fallback."""
+    window, effective = _resolve_window(row, prefix)
+    pct = _coerce_percent_from_remains(window, effective)
+    if pct is not None:
+        return pct
+    return _coerce_percent_from_counts(window, effective)
+
+
+def _resolve_reset_seconds(row: dict, prefix: str) -> float | None:
+    """Pick a reset-in-seconds value from ``remains_time``/``end_time`` fields."""
+    window, effective = _resolve_window(row, prefix)
+    candidates = (
+        f"{effective}remains_time",
+        f"{effective}end_time",
+        f"{effective}reset_in",
+        f"{effective}remaining_time",
+    )
+    for key in candidates:
+        val = window.get(key)
+        if val is None:
+            continue
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _format_seconds_as_reset(seconds: float | int | None) -> str | None:
+    """Convert a ``seconds-until-reset`` value to the canonical reset string."""
+    if seconds is None:
+        return None
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        return None
+    if total <= 0:
+        return "即将重置"
+    days, remainder = divmod(total, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes = remainder // 60
+    parts: list[str] = []
+    if days > 0:
+        parts.append(f"{days}天")
+    if hours > 0:
+        parts.append(f"{hours}小时")
+    if minutes > 0:
+        parts.append(f"{minutes}分")
+    if not parts:
+        return "即将重置"
+    return "".join(parts) + "后重置"
+
+
+# ---------------------------------------------------------------------------
+# Provider
+# ---------------------------------------------------------------------------
+
+
 class MiniMaxProvider(BaseProvider):
     """Usage provider for MiniMax Token Plan subscriptions."""
+
+    # ``supports_direct_fetch`` is a class-level bool per D2 (Phase 1).
+    # ``MiniMaxProvider`` is structurally a ``DirectFetchProvider`` whether or
+    # not credentials are configured — the boolean is the runtime capability
+    # gate. We default to ``True`` because the direct path is always available
+    # (API when key present, CLI fallback otherwise).
+    supports_direct_fetch: bool = True
 
     @property
     def name(self) -> str:
         return "minimax"
 
     # ------------------------------------------------------------------
-    # Public API
+    # Direct fetch (preferred path)
+    # ------------------------------------------------------------------
+
+    def fetch_direct(self, config: Config) -> UsageData:
+        """Fetch via API when a key is configured, otherwise try the CLI.
+
+        Returns a populated :class:`UsageData`. On failure (network,
+        auth, parse, missing tool), returns a ``UsageData`` whose
+        ``error`` field describes the failure so the poller can
+        surface it or fall back to the browser path.
+        """
+        if config.minimax_api_key:
+            return self._fetch_via_api(config)
+        if shutil.which(MINIMAX_CLI_BINARY):
+            return self._fetch_via_cli()
+        return UsageData(
+            provider=self.name,
+            window_5h_percent=0.0,
+            window_7d_percent=0.0,
+            error=(
+                "MiniMax direct fetch unavailable: MINIMAX_API_KEY not set "
+                f"and '{MINIMAX_CLI_BINARY}' CLI not found on PATH."
+            ),
+        )
+
+    def _fetch_via_api(self, config: Config) -> UsageData:
+        base = (config.minimax_api_base_url or MINIMAX_DEFAULT_API_BASE_URL).rstrip("/")
+        url = f"{base}{MINIMAX_API_PATH}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {config.minimax_api_key}",
+                "Accept": "application/json",
+                "User-Agent": "show-ai-usage-poller/1.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=MINIMAX_HTTP_TIMEOUT) as resp:
+                raw = resp.read()
+        except urllib.error.HTTPError as exc:
+            # Only echo the status code — upstream ``reason`` text may echo
+            # the API key back to us (some proxies do this on auth failure).
+            return self._error_usage(f"MiniMax API HTTP {exc.code}")
+        except urllib.error.URLError as exc:
+            return self._error_usage(f"MiniMax API unreachable: {exc.reason}")
+        except TimeoutError:
+            return self._error_usage(
+                f"MiniMax API timed out after {MINIMAX_HTTP_TIMEOUT}s"
+            )
+
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return self._error_usage(f"MiniMax API returned invalid JSON: {exc.msg}")
+
+        return self._parse_remains_payload(payload)
+
+    def _fetch_via_cli(self) -> UsageData:
+        try:
+            proc = subprocess.run(
+                [MINIMAX_CLI_BINARY, "quota", "show", "--output", "json"],
+                capture_output=True,
+                text=True,
+                timeout=MINIMAX_CLI_TIMEOUT,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return self._error_usage(
+                f"{MINIMAX_CLI_BINARY} CLI timed out after {MINIMAX_CLI_TIMEOUT}s"
+            )
+        except FileNotFoundError:
+            return self._error_usage(f"{MINIMAX_CLI_BINARY} CLI not found on PATH")
+
+        if proc.returncode != 0:
+            # Do NOT echo stderr — it may contain credentials or
+            # environment-specific paths. Just report the exit code.
+            return self._error_usage(
+                f"{MINIMAX_CLI_BINARY} CLI failed with exit code {proc.returncode}"
+            )
+
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            return self._error_usage(
+                f"{MINIMAX_CLI_BINARY} CLI returned invalid JSON: {exc.msg}"
+            )
+
+        return self._parse_remains_payload(payload)
+
+    @staticmethod
+    def _error_usage(message: str) -> UsageData:
+        return UsageData(
+            provider="minimax",
+            window_5h_percent=0.0,
+            window_7d_percent=0.0,
+            error=message,
+        )
+
+    @staticmethod
+    def _parse_remains_payload(payload: Any) -> UsageData:
+        row = _select_model_remains(payload)
+        if row is None:
+            return MiniMaxProvider._error_usage(
+                "MiniMax payload did not contain a model_remains row"
+            )
+
+        pct_5h = _coerce_window_percent(row, prefix="")
+        pct_7d = _coerce_window_percent(row, prefix="weekly_")
+        reset_5h = _format_seconds_as_reset(_resolve_reset_seconds(row, prefix=""))
+        reset_7d = _format_seconds_as_reset(
+            _resolve_reset_seconds(row, prefix="weekly_")
+        )
+
+        return UsageData(
+            provider="minimax",
+            window_5h_percent=pct_5h if pct_5h is not None else 0.0,
+            window_7d_percent=pct_7d if pct_7d is not None else 0.0,
+            reset_5h=reset_5h,
+            reset_7d=reset_7d,
+        )
+
+    # ------------------------------------------------------------------
+    # Browser path (kept for backwards compatibility / fallback)
     # ------------------------------------------------------------------
 
     def fetch(self, context: BrowserContext) -> UsageData:
@@ -46,6 +382,9 @@ class MiniMaxProvider(BaseProvider):
                     "Run with `--debug` to dump the page content for analysis."
                 )
 
+            # Local import to avoid a top-level cycle with base.py.
+            from poller.providers.base import format_reset_time
+
             return UsageData(
                 provider="minimax",
                 window_5h_percent=window_5h or 0.0,
@@ -57,7 +396,7 @@ class MiniMaxProvider(BaseProvider):
             page.close()
 
     # ------------------------------------------------------------------
-    # Page interaction helpers
+    # Page interaction helpers (browser path)
     # ------------------------------------------------------------------
 
     def _navigate_and_wait(self, page: Page) -> None:
@@ -88,13 +427,13 @@ class MiniMaxProvider(BaseProvider):
         return (page.evaluate("document.body?.innerText") or "").strip()
 
     # ------------------------------------------------------------------
-    # Text-based parsing
+    # Text-based parsing (browser path)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _parse_from_text(
         text: str,
-    ) -> Tuple[float | None, float | None, str | None, str | None]:
+    ) -> tuple[float | None, float | None, str | None, str | None]:
         window_5h: float | None = None
         window_7d: float | None = None
         reset_5h: str | None = None
@@ -188,7 +527,7 @@ class MiniMaxProvider(BaseProvider):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _parse_from_dom(page: Page) -> Tuple[float | None, float | None]:
+    def _parse_from_dom(page: Page) -> tuple[float | None, float | None]:
         selectors = [
             "[class*=usage]", "[class*=Usage]",
             "[class*=progress]", "[class*=Progress]",

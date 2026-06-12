@@ -82,17 +82,16 @@ def test_browser_providers_are_not_direct(provider_cls) -> None:
     assert not isinstance(provider, DirectFetchProvider)
 
 
-@pytest.mark.parametrize(
-    "provider_cls",
-    [KimiProvider, MiniMaxProvider],
-)
-def test_kimi_minimax_currently_browser_only(provider_cls) -> None:
-    """Kimi and MiniMax are still browser-based in Wave 1; they don't
-    implement the protocol yet, but their class shape is compatible
-    (see stub test below) so a later task can add the direct path
-    without touching this foundation."""
-    provider = provider_cls()
-    assert not isinstance(provider, DirectFetchProvider)
+def test_kimi_minimax_implement_direct_protocol() -> None:
+    """Both Kimi and MiniMax now implement the direct fetch protocol.
+
+    This is a positive assertion: their classes carry the structural
+    attributes ``supports_direct_fetch`` and ``fetch_direct``. The
+    Wave 1 version of this test asserted the opposite (browser-only);
+    it was removed once the providers moved to direct.
+    """
+    assert isinstance(KimiProvider(), DirectFetchProvider)
+    assert isinstance(MiniMaxProvider(), DirectFetchProvider)
 
 
 # ---------------------------------------------------------------------------

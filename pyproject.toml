@@ -24,3 +24,8 @@ select = ["E", "F", "W", "I"]
 
 [tool.uv]
 package = true
+
+[tool.pytest.ini_options]
+markers = [
+    "minimax_cli_fallback: Tests for the MiniMax mmx CLI fallback path.",
+] 

@@ -92,13 +92,18 @@ def _handle_login(config, provider: str = "codex") -> None:
 
 
 def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
-    """Shared logic: open browser, poll providers, return results list."""
-    browser_dir = _get_browser_data_dir(config.browser_data_dir)
-    if not browser_dir.exists():
-        log.error("No browser profile found at %s. Run --login first.", browser_dir)
-        sys.exit(1)
+    """Shared logic: poll providers, return results list.
 
+    Providers that implement :class:`DirectFetchProvider` (currently Kimi
+    and MiniMax) are polled via their direct API path. The browser is
+    launched only when at least one provider needs it (browser-only
+    providers, or failed direct providers when
+    ``config.direct_fetch_browser_fallback`` is True). This lets pure
+    direct-API runs complete without ever instantiating Playwright.
+    """
     from poller.providers import get_enabled_providers
+    from poller.providers.base import UsageData
+    from poller.providers.direct import DirectFetchProvider
 
     resolved_timezone = config.timezone or get_system_timezone()
     providers = get_enabled_providers(provider_names, timezone_id=resolved_timezone)
@@ -107,10 +112,52 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
         log.warning("No providers enabled.")
         return []
 
+    direct_providers = [
+        p for p in providers
+        if isinstance(p, DirectFetchProvider) and p.supports_direct_fetch
+    ]
+    browser_providers = [
+        p for p in providers
+        if not (isinstance(p, DirectFetchProvider) and p.supports_direct_fetch)
+    ]
+
     results: list[dict[str, object]] = []
+
+    for provider in direct_providers:
+        log.info("Polling %s (direct API) ...", provider.name)
+        try:
+            data = provider.fetch_direct(config)
+        except Exception as exc:
+            log.error("%s ✗  %s", provider.name, exc)
+            data = UsageData(
+                provider=provider.name,
+                window_5h_percent=0.0,
+                window_7d_percent=0.0,
+                error=str(exc),
+            )
+        results.append(data.model_dump(mode="json"))
+        if data.error:
+            log.error("%s ✗  %s", provider.name, data.error)
+        else:
+            log.info(
+                "%s ✓  5h=%.0f%%  7d=%.0f%%",
+                provider.name,
+                data.window_5h_percent,
+                data.window_7d_percent,
+            )
+        time.sleep(1)
+
+    if not browser_providers:
+        return results
+
+    browser_dir = _get_browser_data_dir(config.browser_data_dir)
+    if not browser_dir.exists():
+        log.error("No browser profile found at %s. Run --login first.", browser_dir)
+        sys.exit(1)
+
     with ManagedBrowser(headless=True, data_dir=browser_dir, timezone=resolved_timezone) as browser:
         context = browser.get_context()
-        for provider in providers:
+        for provider in browser_providers:
             log.info("Polling %s ...", provider.name)
             try:
                 data = provider.fetch(context)

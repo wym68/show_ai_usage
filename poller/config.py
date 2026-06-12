@@ -135,10 +135,10 @@ class Config(BaseModel):
         ),
     )
     minimax_api_base_url: str = Field(
-        default="https://api.minimaxi.com",
+        default="https://api.minimax.io",
         description=(
             "MiniMax API base URL. Env: MINIMAX_API_BASE_URL. "
-            "Defaults to the official endpoint."
+            "Defaults to the official endpoint (https://api.minimax.io)."
         ),
     )
 

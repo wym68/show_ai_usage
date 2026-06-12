@@ -146,6 +146,43 @@ enabled_providers = ["codex", "claude", "kimi", "minimax"]  # 启用的服务
 # timezone = "Asia/Shanghai"  # 浏览器时区，留空自动检测
 ```
 
+### Kimi / MiniMax 直抓 API（第一阶段）
+
+> 目前仅 **Kimi** 与 **MiniMax** 支持直接 API 抓取；**OpenAI Codex** 与 **Claude Code** 仍保持 browser-backed（基于浏览器）的抓取方式，未变更。
+
+直接抓取跳过 Playwright 浏览器启动，速度更快、不受 Cloudflare 挑战影响。第一阶段实现通过环境变量或 `config.toml` 读取凭据，显式配置优先于环境变量。
+
+| 提供商 | 环境变量 / 配置键 | 说明 |
+|--------|------------------|------|
+| **Kimi** | `KIMI_CODE_ACCESS_TOKEN` / `kimi_code_access_token` | Kimi Code 访问令牌，用于直接调用用量接口 |
+| **MiniMax** | `MINIMAX_API_KEY` / `minimax_api_key` | MiniMax API Key |
+| **MiniMax** | `MINIMAX_API_BASE_URL` / `minimax_api_base_url` | 接口基础地址，默认 `https://api.minimax.io`，可改为 `https://api.minimaxi.com` |
+
+在 `~/.config/show-ai-usage/config.toml` 的 `[general]` 段添加：
+
+```toml
+[general]
+# ... 其他配置 ...
+direct_fetch_browser_fallback = false  # 直抓失败时是否回退到浏览器抓取（默认 false）
+
+kimi_code_access_token = ""   # 或留空，从 KIMI_CODE_ACCESS_TOKEN 读取
+minimax_api_key = ""          # 或留空，从 MINIMAX_API_KEY 读取
+minimax_api_base_url = "https://api.minimax.io"
+```
+
+- `direct_fetch_browser_fallback = false`（默认）时，直抓失败直接报错，不会悄悄切回浏览器。
+- 第一阶段直抓仅覆盖用量与配额读取；**MiniMax 的订阅积分（积分余额 / mmx quota）仍通过相同接口返回**，但充值、赠送积分的细分不展示。
+- 未配置对应凭据时，Kimi / MiniMax 自动走原有浏览器登录路径（与 Codex / Claude 一致）。
+
+#### 常见问题
+
+| 现象 | 原因 | 处理 |
+|------|------|------|
+| Kimi / MiniMax 报错缺少凭据 | 未设置环境变量，且 `config.toml` 中对应字段为空 | 设置 `KIMI_CODE_ACCESS_TOKEN` 或 `MINIMAX_API_KEY`，或在配置文件中填写 |
+| 直抓返回 401 / 403 | Token 失效、权限不足或 base URL 错误 | 检查令牌有效期；确认 `minimax_api_base_url` 为 `https://api.minimaxi.com` 或 `https://api.minimax.io` |
+| 直抓超时或失败 | 网络问题或接口变更 | 临时开启 `direct_fetch_browser_fallback = true` 回退到浏览器抓取，并查看日志 |
+| Codex / Claude 没有直抓选项 | 目前仅 Kimi / MiniMax 支持直抓 | 继续使用 `--login codex` / `--login claude` 浏览器登录 |
+
 ---
 
 ## 常用命令
