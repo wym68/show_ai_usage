@@ -9,6 +9,9 @@ dependencies = ["playwright>=1.60", "pydantic>=2.0"]
 [project.scripts]
 show-ai-usage-poller = "poller.main:cli"
 
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
 [tool.setuptools]
 packages = ["poller"]
 

@@ -374,10 +374,12 @@ def cli() -> None:
     level = "DEBUG" if args.debug else cfg.log_level
     setup_logging(level)
 
-    log.debug("Configuration loaded: %s", cfg.model_dump_json(indent=2))
+    log.debug("Configuration loaded: %s", cfg.redacted_json(indent=2))
 
     if args.show_config:
-        print(cfg.model_dump_json(indent=2))
+        # Always mask credential fields — secrets must not be printed
+        # to stdout even when --show-config is invoked with env vars set.
+        print(cfg.redacted_json(indent=2))
         return
 
     # ── Resolve which providers will be used ──────────────────────

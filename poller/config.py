@@ -5,12 +5,13 @@ File location (XDG compliant):
   default: ``~/.config/show-ai-usage/config.toml``
 """
 
+import json
 import os
 import tomllib
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, ClassVar, Sequence
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ── Paths ────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,86 @@ class Config(BaseModel):
         default="",  # empty = use XDG default (~/.local/share/show-ai-usage/browser-data/)
         description="Isolated browser profile directory. Empty = use XDG default.",
     )
+
+    # ── Direct API fetch (Wave 1 foundation) ───────────────────────
+    direct_fetch_browser_fallback: bool = Field(
+        default=False,
+        description=(
+            "If True, providers that support the direct API path will "
+            "fall back to the Playwright browser path on any error. "
+            "If False (default), the direct path is authoritative and "
+            "failures are reported as errors."
+        ),
+    )
+
+    # ── Provider credentials (env-first resolution) ─────────────────
+    # Invariant: these fields MUST NEVER be written to data.json. Use
+    # ``redacted_dict()`` / ``redacted_json()`` for any human-facing
+    # output (e.g. ``--show-config``).
+    kimi_code_access_token: str = Field(
+        default="",
+        description=(
+            "Kimi Code access token. Env: KIMI_CODE_ACCESS_TOKEN. "
+            "Used by the Kimi direct-API fetch path."
+        ),
+    )
+    minimax_api_key: str = Field(
+        default="",
+        description=(
+            "MiniMax API key. Env: MINIMAX_API_KEY. "
+            "Used by the MiniMax direct-API fetch path."
+        ),
+    )
+    minimax_api_base_url: str = Field(
+        default="https://api.minimaxi.com",
+        description=(
+            "MiniMax API base URL. Env: MINIMAX_API_BASE_URL. "
+            "Defaults to the official endpoint."
+        ),
+    )
+
+    _REDACTED_FIELDS: ClassVar[Sequence[str]] = (
+        "kimi_code_access_token",
+        "minimax_api_key",
+    )
+
+    # Env wins only when the value resolved from TOML is empty.
+    _ENV_FIELD_MAP: ClassVar[dict[str, str]] = {
+        "kimi_code_access_token": "KIMI_CODE_ACCESS_TOKEN",
+        "minimax_api_key": "MINIMAX_API_KEY",
+        "minimax_api_base_url": "MINIMAX_API_BASE_URL",
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_env_credentials(cls, data: Any) -> Any:
+        """Prefer env vars for credential fields when TOML left them empty."""
+        if not isinstance(data, dict):
+            return data
+        for field_name, env_var in cls._ENV_FIELD_MAP.items():
+            current = data.get(field_name)
+            if current:
+                continue
+            env_val = os.environ.get(env_var)
+            if env_val:
+                data = {**data, field_name: env_val}
+        return data
+
+    def redacted_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe dict with secret fields masked.
+
+        Non-secret fields are passed through unchanged. Use this
+        for ``--show-config`` and any other human-facing output.
+        """
+        d = self.model_dump()
+        for field_name in self._REDACTED_FIELDS:
+            if d.get(field_name):
+                d[field_name] = "***REDACTED***"
+        return d
+
+    def redacted_json(self, *, indent: int | None = 2) -> str:
+        """Return a redacted JSON string of the effective configuration."""
+        return json.dumps(self.redacted_dict(), indent=indent, ensure_ascii=False)
 
 
 # ── Load / init ──────────────────────────────────────────────────────────
