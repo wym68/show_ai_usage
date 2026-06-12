@@ -147,7 +147,6 @@ class Config(BaseModel):
         "minimax_api_key",
     )
 
-    # Env wins only when the value resolved from TOML is empty.
     _ENV_FIELD_MAP: ClassVar[dict[str, str]] = {
         "kimi_code_access_token": "KIMI_CODE_ACCESS_TOKEN",
         "minimax_api_key": "MINIMAX_API_KEY",
@@ -157,13 +156,9 @@ class Config(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _resolve_env_credentials(cls, data: Any) -> Any:
-        """Prefer env vars for credential fields when TOML left them empty."""
         if not isinstance(data, dict):
             return data
         for field_name, env_var in cls._ENV_FIELD_MAP.items():
-            current = data.get(field_name)
-            if current:
-                continue
             env_val = os.environ.get(env_var)
             if env_val:
                 data = {**data, field_name: env_val}

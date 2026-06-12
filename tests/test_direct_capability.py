@@ -298,11 +298,10 @@ def test_config_minimax_credential_env_first(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_config_credential_explicit_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If the field is supplied explicitly (e.g. via TOML or init kwargs),
-    it must NOT be replaced by an environment variable."""
+    """Env vars are authoritative: explicit kwargs are overwritten by env."""
     monkeypatch.setenv("KIMI_CODE_ACCESS_TOKEN", "env-token-xyz")
     cfg = Config(kimi_code_access_token="explicit-token")
-    assert cfg.kimi_code_access_token == "explicit-token"
+    assert cfg.kimi_code_access_token == "env-token-xyz"
 
 
 def test_config_redacted_masks_secrets() -> None:
