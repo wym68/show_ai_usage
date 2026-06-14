@@ -74,16 +74,20 @@ def test_base_provider_fetch_signature_unchanged() -> None:
 
 @pytest.mark.parametrize(
     "provider_cls",
-    [CodexProvider, ClaudeProvider],
+    [CodexProvider],
 )
 def test_browser_providers_are_not_direct(provider_cls) -> None:
-    """Codex and Claude have no API path — they must not satisfy the protocol."""
+    """Codex has no API path — it must not satisfy the protocol.
+
+    (Claude gained a direct path in Wave 4 and is covered by the
+    positive assertion below.)
+    """
     provider = provider_cls()
     assert not isinstance(provider, DirectFetchProvider)
 
 
-def test_kimi_minimax_implement_direct_protocol() -> None:
-    """Both Kimi and MiniMax now implement the direct fetch protocol.
+def test_kimi_minimax_claude_implement_direct_protocol() -> None:
+    """Kimi, MiniMax, and Claude now implement the direct fetch protocol.
 
     This is a positive assertion: their classes carry the structural
     attributes ``supports_direct_fetch`` and ``fetch_direct``. The
@@ -92,6 +96,7 @@ def test_kimi_minimax_implement_direct_protocol() -> None:
     """
     assert isinstance(KimiProvider(), DirectFetchProvider)
     assert isinstance(MiniMaxProvider(), DirectFetchProvider)
+    assert isinstance(ClaudeProvider(), DirectFetchProvider)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +268,11 @@ def test_config_has_direct_fetch_browser_fallback_field() -> None:
     assert cfg.direct_fetch_browser_fallback is False
 
 
+def test_config_has_claude_use_direct_fetch_field() -> None:
+    cfg = Config()
+    assert cfg.claude_use_direct_fetch is False
+
+
 def test_config_loads_direct_fetch_browser_fallback_from_general() -> None:
     """``direct_fetch_browser_fallback`` lives under ``[general]`` in TOML."""
     from poller.config import load_config
@@ -276,6 +286,21 @@ def test_config_loads_direct_fetch_browser_fallback_from_general() -> None:
         )
         cfg = load_config()
     assert cfg.direct_fetch_browser_fallback is True
+
+
+def test_config_loads_claude_use_direct_fetch_from_general() -> None:
+    """``claude_use_direct_fetch`` lives under ``[general]`` in TOML."""
+    from poller.config import load_config
+
+    with patch("poller.config.CONFIG_FILE") as mock_file:
+        mock_file.exists.return_value = True
+        mock_file.read_text.return_value = (
+            "[general]\n"
+            "interval = 300\n"
+            "claude_use_direct_fetch = true\n"
+        )
+        cfg = load_config()
+    assert cfg.claude_use_direct_fetch is True
 
 
 def test_config_kimi_credential_env_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,11 +322,21 @@ def test_config_minimax_credential_env_first(monkeypatch: pytest.MonkeyPatch) ->
     assert cfg2.minimax_api_base_url == "https://example.test/api"
 
 
+def test_config_claude_credential_env_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``CLAUDE_CODE_ACCESS_TOKEN`` env var is loaded into the config."""
+    monkeypatch.setenv("CLAUDE_CODE_ACCESS_TOKEN", "env-claude-789")
+    cfg = Config()
+    assert cfg.claude_code_access_token == "env-claude-789"
+
+
 def test_config_credential_explicit_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Env vars are authoritative: explicit kwargs are overwritten by env."""
     monkeypatch.setenv("KIMI_CODE_ACCESS_TOKEN", "env-token-xyz")
+    monkeypatch.setenv("CLAUDE_CODE_ACCESS_TOKEN", "env-claude-xyz")
     cfg = Config(kimi_code_access_token="explicit-token")
     assert cfg.kimi_code_access_token == "env-token-xyz"
+    cfg_claude = Config(claude_code_access_token="explicit-claude")
+    assert cfg_claude.claude_code_access_token == "env-claude-xyz"
 
 
 def test_config_redacted_masks_secrets() -> None:
@@ -309,16 +344,19 @@ def test_config_redacted_masks_secrets() -> None:
         kimi_code_access_token="super-secret-kimi",
         minimax_api_key="super-secret-minimax",
         minimax_api_base_url="https://api.minimaxi.com",
+        claude_code_access_token="super-secret-claude",
     )
     redacted = cfg.redacted_dict()
     assert redacted["kimi_code_access_token"] == "***REDACTED***"
     assert redacted["minimax_api_key"] == "***REDACTED***"
+    assert redacted["claude_code_access_token"] == "***REDACTED***"
     # Non-secret fields pass through.
     assert redacted["minimax_api_base_url"] == "https://api.minimaxi.com"
     # The redacted_dict must not leak the original secrets at all.
     dumped = str(redacted)
     assert "super-secret-kimi" not in dumped
     assert "super-secret-minimax" not in dumped
+    assert "super-secret-claude" not in dumped
 
 
 def test_config_redacted_json_safe_for_console() -> None:
@@ -327,15 +365,18 @@ def test_config_redacted_json_safe_for_console() -> None:
     the environment."""
     os.environ["KIMI_CODE_ACCESS_TOKEN"] = "do-not-leak-me"
     os.environ["MINIMAX_API_KEY"] = "do-not-leak-me-either"
+    os.environ["CLAUDE_CODE_ACCESS_TOKEN"] = "do-not-leak-claude"
     try:
         cfg = Config()
         out = cfg.redacted_json(indent=2)
         assert "do-not-leak-me" not in out
         assert "do-not-leak-me-either" not in out
+        assert "do-not-leak-claude" not in out
         assert "***REDACTED***" in out
     finally:
         os.environ.pop("KIMI_CODE_ACCESS_TOKEN", None)
         os.environ.pop("MINIMAX_API_KEY", None)
+        os.environ.pop("CLAUDE_CODE_ACCESS_TOKEN", None)
 
 
 def test_config_empty_credentials_not_redacted() -> None:
@@ -345,3 +386,4 @@ def test_config_empty_credentials_not_redacted() -> None:
     redacted = cfg.redacted_dict()
     assert redacted["kimi_code_access_token"] == ""
     assert redacted["minimax_api_key"] == ""
+    assert redacted["claude_code_access_token"] == ""

@@ -73,6 +73,22 @@ def _parse_absolute_time(
         year, month, day, hour, minute = map(int, m.groups())
         target = datetime(year, month, day, hour, minute, tzinfo=tz)
 
+    # ISO 8601 (e.g., Kimi resetAt: "2026-06-15T00:00:00Z")
+    if target is None:
+        m = re.search(
+            r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?',
+            text,
+        )
+        if m:
+            try:
+                target = datetime.fromisoformat(m.group(0))
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=tz)
+                else:
+                    target = target.astimezone(tz)
+            except ValueError:
+                target = None
+
     if target is None and provider == 'codex':
         m = re.search(r'\b(\d{1,2}):(\d{2})\b', text)
         if m:
