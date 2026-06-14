@@ -52,20 +52,6 @@ systemd timer ──▶ Python Poller ──▶ 用量数据 ──▶ ~/.local/
 
 ## 安装
 
-### 方式一：发布包（推荐）
-
-1. 下载并解压发布包到任意目录，例如 `~/show-ai-usage/`
-2. 运行安装脚本：
-
-```bash
-cd ~/show-ai-usage
-./install.sh
-```
-
-3. 右键桌面 → **添加小部件** → 搜索 **AI Usage Monitor** → 拖到面板上
-
-### 方式二：源码
-
 ```bash
 git clone https://github.com/wym68/show_ai_usage.git show-ai-usage
 cd show-ai-usage
