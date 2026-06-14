@@ -120,6 +120,9 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
         is_direct_capable = (
             isinstance(provider, DirectFetchProvider) and provider.supports_direct_fetch
         )
+        # Claude defaults to browser scraping unless the user explicitly opts in.
+        if provider.name == "claude" and not config.claude_use_direct_fetch:
+            is_direct_capable = False
         if not is_direct_capable:
             browser_queue.append((index, provider))
             continue

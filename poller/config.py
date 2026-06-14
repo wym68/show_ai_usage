@@ -141,16 +141,34 @@ class Config(BaseModel):
             "Defaults to the official endpoint (https://api.minimax.io)."
         ),
     )
+    claude_code_access_token: str = Field(
+        default="",
+        description=(
+            "Claude Code access token. Env: CLAUDE_CODE_ACCESS_TOKEN. "
+            "Used by the Claude Code direct-API fetch path."
+        ),
+    )
+    claude_use_direct_fetch: bool = Field(
+        default=False,
+        description=(
+            "If True, Claude will use the direct API fetch path when "
+            "credentials are available. If False (default), Claude always "
+            "uses the browser-based fetch path."
+        ),
+    )
 
     _REDACTED_FIELDS: ClassVar[Sequence[str]] = (
         "kimi_code_access_token",
         "minimax_api_key",
+        "claude_code_access_token",
     )
 
     _ENV_FIELD_MAP: ClassVar[dict[str, str]] = {
         "kimi_code_access_token": "KIMI_CODE_ACCESS_TOKEN",
         "minimax_api_key": "MINIMAX_API_KEY",
         "minimax_api_base_url": "MINIMAX_API_BASE_URL",
+        "claude_code_access_token": "CLAUDE_CODE_ACCESS_TOKEN",
+        "claude_use_direct_fetch": "CLAUDE_USE_DIRECT_FETCH",
     }
 
     @model_validator(mode="before")
@@ -242,6 +260,15 @@ interval = 300
 
 # List of providers to poll.  Available: "codex", "claude", "kimi", "minimax"
 enabled_providers = ["codex", "claude", "kimi", "minimax"]
+
+# If true, providers that support direct API fetching will fall back to the
+# browser path when the direct path fails. Default false means direct failures
+# are reported as errors.
+# direct_fetch_browser_fallback = false
+
+# If true, Claude will use the undocumented /api/oauth/usage direct API when
+# a token is available. Default false means Claude always uses the browser.
+# claude_use_direct_fetch = false
 
 # Logging level: DEBUG, INFO, WARNING, ERROR
 # log_level = "INFO"

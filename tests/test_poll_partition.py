@@ -9,6 +9,7 @@ from playwright.sync_api import BrowserContext
 from poller.config import Config
 from poller.main import _poll
 from poller.providers.base import BaseProvider, UsageData
+from poller.providers.claude import ClaudeProvider
 
 
 @dataclass
@@ -103,6 +104,179 @@ def _run_poll(
 class _ExistingPath:
     def exists(self) -> bool:
         return True
+
+
+def _run_poll_claude(
+    monkeypatch: pytest.MonkeyPatch,
+    claude: ClaudeProvider,
+    recorder: _Recorder,
+    *,
+    fallback: bool = False,
+    claude_use_direct_fetch: bool = True,
+) -> list[dict[str, object]]:
+    def fake_get_enabled_providers(
+        provider_names: list[str], *, timezone_id: str = "UTC"
+    ) -> list[BaseProvider]:
+        assert provider_names == ["claude"]
+        return [claude]
+
+    def fake_browser(*args: Any, **kwargs: Any) -> _FakeManagedBrowser:
+        return _FakeManagedBrowser(*args, recorder=recorder, **kwargs)
+
+    monkeypatch.setattr("poller.providers.get_enabled_providers", fake_get_enabled_providers)
+    monkeypatch.setattr("poller.main.ManagedBrowser", fake_browser)
+    monkeypatch.setattr("poller.main._get_browser_data_dir", lambda _: _ExistingPath())
+    monkeypatch.setattr("poller.main.time.sleep", lambda _: None)
+
+    return _poll(
+        ["claude"],
+        Config(
+            direct_fetch_browser_fallback=fallback,
+            claude_use_direct_fetch=claude_use_direct_fetch,
+        ),
+    )
+
+
+def test_claude_direct_success_no_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claude-only direct success must skip the browser entirely."""
+    recorder = _Recorder()
+    claude = ClaudeProvider()
+
+    def fake_fetch_direct(self: ClaudeProvider, config: Config) -> UsageData:
+        recorder.direct.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=42.0,
+            window_7d_percent=18.0,
+        )
+
+    def fake_fetch(self: ClaudeProvider, context: BrowserContext) -> UsageData:
+        recorder.browser.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=99.0,
+            window_7d_percent=99.0,
+        )
+
+    monkeypatch.setattr(ClaudeProvider, "fetch_direct", fake_fetch_direct)
+    monkeypatch.setattr(ClaudeProvider, "fetch", fake_fetch)
+
+    results = _run_poll_claude(monkeypatch, claude, recorder)
+
+    assert [r["provider"] for r in results] == ["claude"]
+    assert results[0]["window_5h_percent"] == 42.0
+    assert results[0]["window_7d_percent"] == 18.0
+    assert results[0]["error"] is None
+    assert recorder.direct == ["claude"]
+    assert recorder.browser == []
+    assert recorder.launches == 0
+
+
+def test_claude_direct_error_no_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Direct fetch failure with fallback=False records the error and skips browser."""
+    recorder = _Recorder()
+    claude = ClaudeProvider()
+
+    def fake_fetch_direct(self: ClaudeProvider, config: Config) -> UsageData:
+        recorder.direct.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=0.0,
+            window_7d_percent=0.0,
+            error="Claude API HTTP 503",
+        )
+
+    def fake_fetch(self: ClaudeProvider, context: BrowserContext) -> UsageData:
+        recorder.browser.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=10.0,
+            window_7d_percent=20.0,
+        )
+
+    monkeypatch.setattr(ClaudeProvider, "fetch_direct", fake_fetch_direct)
+    monkeypatch.setattr(ClaudeProvider, "fetch", fake_fetch)
+
+    results = _run_poll_claude(monkeypatch, claude, recorder, fallback=False)
+
+    assert [r["provider"] for r in results] == ["claude"]
+    assert results[0]["error"] == "Claude API HTTP 503"
+    assert recorder.direct == ["claude"]
+    assert recorder.browser == []
+    assert recorder.launches == 0
+
+
+def test_claude_direct_error_browser_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Direct fetch failure with fallback=True runs the browser ``fetch(context)``."""
+    recorder = _Recorder()
+    claude = ClaudeProvider()
+
+    def fake_fetch_direct(self: ClaudeProvider, config: Config) -> UsageData:
+        recorder.direct.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=0.0,
+            window_7d_percent=0.0,
+            error="Claude API HTTP 503",
+        )
+
+    def fake_fetch(self: ClaudeProvider, context: BrowserContext) -> UsageData:
+        recorder.browser.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=55.0,
+            window_7d_percent=66.0,
+        )
+
+    monkeypatch.setattr(ClaudeProvider, "fetch_direct", fake_fetch_direct)
+    monkeypatch.setattr(ClaudeProvider, "fetch", fake_fetch)
+
+    results = _run_poll_claude(monkeypatch, claude, recorder, fallback=True)
+
+    assert [r["provider"] for r in results] == ["claude"]
+    assert results[0]["window_5h_percent"] == 55.0
+    assert results[0]["window_7d_percent"] == 66.0
+    assert results[0]["error"] is None
+    assert recorder.direct == ["claude"]
+    assert recorder.browser == ["claude"]
+    assert recorder.launches == 1
+
+
+def test_claude_default_uses_browser_no_direct(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the default config Claude must use the browser path even though it is direct-capable."""
+    recorder = _Recorder()
+    claude = ClaudeProvider()
+
+    def fake_fetch_direct(self: ClaudeProvider, config: Config) -> UsageData:
+        recorder.direct.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=42.0,
+            window_7d_percent=18.0,
+        )
+
+    def fake_fetch(self: ClaudeProvider, context: BrowserContext) -> UsageData:
+        recorder.browser.append("claude")
+        return UsageData(
+            provider="claude",
+            window_5h_percent=55.0,
+            window_7d_percent=66.0,
+        )
+
+    monkeypatch.setattr(ClaudeProvider, "fetch_direct", fake_fetch_direct)
+    monkeypatch.setattr(ClaudeProvider, "fetch", fake_fetch)
+
+    results = _run_poll_claude(
+        monkeypatch, claude, recorder, claude_use_direct_fetch=False
+    )
+
+    assert [r["provider"] for r in results] == ["claude"]
+    assert results[0]["window_5h_percent"] == 55.0
+    assert results[0]["window_7d_percent"] == 66.0
+    assert results[0]["error"] is None
+    assert recorder.direct == []
+    assert recorder.browser == ["claude"]
+    assert recorder.launches == 1
 
 
 def test_poll_partition_all_direct_no_browser(monkeypatch: pytest.MonkeyPatch) -> None:
