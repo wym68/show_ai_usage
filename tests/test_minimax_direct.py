@@ -39,6 +39,7 @@ from poller.providers.minimax import (
     MiniMaxProvider,
     _coerce_window_percent,
     _format_seconds_as_reset,
+    _resolve_reset_seconds,
     _select_model_remains,
 )
 
@@ -470,6 +471,46 @@ def test_fetch_direct_invalid_json_returns_usage_data_with_error() -> None:
     assert "json" in data.error.lower()
 
 
+def test_fetch_direct_base_resp_error_returns_usage_data_with_error() -> None:
+    """MiniMax signals API errors inside HTTP 200 via ``base_resp.status_code``."""
+    cfg = Config(minimax_api_key="test-key")
+    provider = MiniMaxProvider()
+
+    err_ctx = MagicMock()
+    err_ctx.__enter__.return_value.read.return_value = json.dumps(
+        {"base_resp": {"status_code": 2049, "status_msg": "invalid api key"}}
+    ).encode("utf-8")
+
+    with patch("poller.providers.minimax.urllib.request.urlopen") as urlopen:
+        urlopen.return_value = err_ctx
+        data = provider.fetch_direct(cfg)
+
+    assert data.error is not None
+    assert "2049" in data.error
+    assert "invalid api key" in data.error
+    # API key itself must never leak.
+    assert cfg.minimax_api_key not in data.error
+
+
+def test_fetch_direct_base_resp_success_shape_parses_normally() -> None:
+    """A 200 with ``base_resp.status_code == 0`` should parse the row."""
+    cfg = Config(minimax_api_key="test-key")
+    provider = MiniMaxProvider()
+
+    ok_ctx = MagicMock()
+    ok_ctx.__enter__.return_value.read.return_value = json.dumps(
+        {"base_resp": {"status_code": 0, "status_msg": "success"}, "data": _row()}
+    ).encode("utf-8")
+
+    with patch("poller.providers.minimax.urllib.request.urlopen") as urlopen:
+        urlopen.return_value = ok_ctx
+        data = provider.fetch_direct(cfg)
+
+    assert data.error is None
+    assert data.window_5h_percent == pytest.approx(30.0)
+    assert data.window_7d_percent == pytest.approx(10.0)
+
+
 def test_fetch_direct_missing_credentials_no_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     """No API key AND no ``mmx`` CLI → clear provider error in ``UsageData.error``."""
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
@@ -657,3 +698,72 @@ def test_minimax_token_plan_parser_all_shapes(shape: str, payload: dict[str, Any
     assert data.provider == "minimax"
     assert data.window_5h_percent == pytest.approx(30.0)
     assert data.window_7d_percent == pytest.approx(10.0)
+
+
+def test_parse_payload_real_api_shape() -> None:
+    """A real ``/v1/token_plan/remains`` payload must parse correctly.
+
+    Regression: MiniMax's live endpoint uses ``current_interval_*`` and
+    ``current_weekly_*`` field names, and ``remains_time`` is in milliseconds.
+    """
+    payload = {
+        "model_remains": [
+            {
+                "model_name": "general",
+                "current_interval_remaining_percent": 100,
+                "current_weekly_remaining_percent": 87,
+                "current_interval_usage_count": 0,
+                "current_interval_total_count": 0,
+                "current_weekly_usage_count": 0,
+                "current_weekly_total_count": 0,
+                "remains_time": 14052412,
+                "weekly_remains_time": 14052412,
+            },
+            {"model_name": "video", "current_interval_remaining_percent": 100},
+        ],
+        "base_resp": {"status_code": 0, "status_msg": "success"},
+    }
+    data = MiniMaxProvider._parse_remains_payload(payload)
+    assert data.error is None
+    assert data.window_5h_percent == pytest.approx(0.0)
+    assert data.window_7d_percent == pytest.approx(13.0)
+    assert data.reset_5h is not None
+    assert data.reset_7d is not None
+    assert "天" not in data.reset_5h
+    assert "天" not in data.reset_7d
+
+
+def test_resolve_reset_seconds_treats_large_values_as_milliseconds() -> None:
+    """Values over 1_000_000 are interpreted as milliseconds."""
+    row = {"remains_time": 14052412}
+    seconds = _resolve_reset_seconds(row, "")
+    assert seconds is not None
+    assert seconds == pytest.approx(14052.412)
+
+
+def test_resolve_reset_seconds_keeps_small_values_as_seconds() -> None:
+    """Values under 1_000_000 are interpreted as seconds (legacy fixtures)."""
+    row = {"remains_time": 18000}
+    seconds = _resolve_reset_seconds(row, "")
+    assert seconds is not None
+    assert seconds == pytest.approx(18000.0)
+
+
+def test_coerce_window_percent_prefers_current_interval_fields() -> None:
+    """``current_interval_remaining_percent`` should be preferred over older aliases."""
+    row = {
+        "model_name": "general",
+        "current_interval_remaining_percent": 75.0,
+        "remains_percent": 50.0,
+    }
+    assert _coerce_window_percent(row, "") == pytest.approx(25.0)
+
+
+def test_coerce_window_percent_weekly_prefers_current_weekly_fields() -> None:
+    """``current_weekly_remaining_percent`` should be preferred over older aliases."""
+    row = {
+        "model_name": "general",
+        "current_weekly_remaining_percent": 80.0,
+        "weekly_remains_percent": 60.0,
+    }
+    assert _coerce_window_percent(row, "weekly_") == pytest.approx(20.0)

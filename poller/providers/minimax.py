@@ -126,7 +126,18 @@ def _resolve_window(row: dict, prefix: str) -> tuple[dict, str]:
 
 def _coerce_percent_from_remains(window: dict, prefix: str) -> float | None:
     """Compute used-percent from a ``remains_percent``-style field."""
+    if prefix == "":
+        interval_keys = (
+            "current_interval_remaining_percent",
+            "current_interval_remains_percent",
+        )
+    else:
+        interval_keys = (
+            "current_weekly_remaining_percent",
+            "current_weekly_remains_percent",
+        )
     for key in (
+        *interval_keys,
         f"{prefix}remains_percent",
         f"{prefix}remaining_percent",
         f"{prefix}remain_percent",
@@ -144,7 +155,16 @@ def _coerce_percent_from_remains(window: dict, prefix: str) -> float | None:
 
 def _coerce_percent_from_counts(window: dict, prefix: str) -> float | None:
     """Compute used-percent from ``usage_count`` / ``total_count``-style fields."""
+    if prefix == "":
+        interval_candidates = (
+            ("current_interval_usage_count", "current_interval_total_count"),
+        )
+    else:
+        interval_candidates = (
+            ("current_weekly_usage_count", "current_weekly_total_count"),
+        )
     candidates = (
+        *interval_candidates,
         (f"{prefix}usage_count", f"{prefix}total_count"),
         (f"{prefix}used_count", f"{prefix}quota_count"),
         (f"{prefix}current_usage", f"{prefix}quota"),
@@ -175,7 +195,14 @@ def _coerce_window_percent(row: dict, prefix: str) -> float | None:
 
 
 def _resolve_reset_seconds(row: dict, prefix: str) -> float | None:
-    """Pick a reset-in-seconds value from ``remains_time``/``end_time`` fields."""
+    """Pick a reset-in-seconds value from ``remains_time``/``end_time`` fields.
+
+    MiniMax's live ``remains_time``/``weekly_remains_time`` values are returned
+    in milliseconds, while our test fixtures and some older payloads use
+    seconds. A value larger than one million is unambiguously relative
+    milliseconds (no real reset window exceeds ~11.5 days in seconds), so we
+    divide by 1000 in that case.
+    """
     window, effective = _resolve_window(row, prefix)
     candidates = (
         f"{effective}remains_time",
@@ -188,9 +215,14 @@ def _resolve_reset_seconds(row: dict, prefix: str) -> float | None:
         if val is None:
             continue
         try:
-            return float(val)
+            seconds = float(val)
         except (TypeError, ValueError):
             continue
+        # Live MiniMax API returns reset windows in milliseconds; treat values
+        # that are too large to be seconds as milliseconds.
+        if seconds > 1_000_000:
+            seconds = seconds / 1000.0
+        return seconds
     return None
 
 
@@ -293,6 +325,12 @@ class MiniMaxProvider(BaseProvider):
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
             return self._error_usage(f"MiniMax API returned invalid JSON: {exc.msg}")
+
+        base_resp = payload.get("base_resp") if isinstance(payload, dict) else None
+        if isinstance(base_resp, dict) and base_resp.get("status_code") != 0:
+            code = base_resp.get("status_code")
+            msg = base_resp.get("status_msg") or "MiniMax API error"
+            return self._error_usage(f"MiniMax API error {code}: {msg}")
 
         return self._parse_remains_payload(payload)
 
