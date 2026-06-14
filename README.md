@@ -1,49 +1,44 @@
 # Show AI Usage
 
-KDE Plasma 6 任务栏小部件，监控 **OpenAI Codex、Claude Code、Kimi、MiniMax** 订阅制 AI 服务的滚动窗口用量，实时显示在面板上。
+KDE Plasma 6 任务栏小部件，实时监控 **OpenAI Codex、Claude Code、Kimi、MiniMax** 等订阅制 AI 服务的滚动窗口用量。
 
-> 详细的开发文档、架构说明和 Provider 实现细节见 [Doc.md](Doc.md)。
+> 详细架构、Provider 实现与开发说明见 [Doc.md](Doc.md)。
 
-**注意本项目完全由AI开发,请自行注意保护个人隐私!**
-
----
-
-## 项目目的
-
-AI 编程助手普遍采用订阅制 + 滚动窗口限流的模式（5 小时会话限制、7 天周限制），超额后即被限速。本项目通过浏览器自动化抓取各平台的用量页面，将数据写入本地 JSON 文件，由 KDE 任务栏小部件实时读取展示，让你在编程时随时掌握各服务的剩余配额。
+⚠️ **注意：本项目完全由 AI 开发，请自行注意保护个人隐私！**
 
 ---
 
-## 实现逻辑
+## 功能
+
+- **多平台用量监控**：OpenAI Codex、Claude Code、Kimi、MiniMax
+- **双模式抓取**：
+  - 浏览器自动化（Playwright + Edge，适合 Codex 等需要登录态的平台）
+  - 直接 API 抓取（Kimi / MiniMax / Claude Code，无需启动浏览器）
+- **可视化面板**：4 根彩色圆角进度条，悬停显示详细用量与重置时间
+- **用量阈值配色**：绿 / 黄 / 橙 / 红，一眼识别限速风险
+- **灵活配置**：抓取间隔、启用的服务商、显示模式、数据路径、配色均可自定义
+- **systemd 定时后台抓取**：安装后自动按配置间隔更新数据
+
+---
+
+## 架构
 
 ```
-systemd timer（每 X 分钟）
-    └─▶ Python Poller（Playwright + Edge）
-            └─▶ 访问各平台用量页面 → 提取 5h/7d 百分比 + 重置时间
-                    └─▶ 写入 ~/.local/share/show-ai-usage/data.json
-                                └─▶ KDE Plasmoid（每 60 秒读取）
-                                        └─▶ 面板彩色进度条 + 悬停 Tooltip
+systemd timer ──▶ Python Poller ──▶ 用量数据 ──▶ ~/.local/share/show-ai-usage/data.json
+                                          │
+                                          ▼
+                                  KDE Plasmoid（每 60 秒刷新）
+                                          │
+                                          ▼
+                              面板彩色进度条 + 悬停 Tooltip
 ```
 
-1. **Python Poller**（`poller/`）：使用 Playwright 控制隔离的 Edge 浏览器（独立 `browser-data/` 目录，不影响系统浏览器），依次访问各平台用量页面，正则提取数据，写入 JSON。
-2. **KDE Plasmoid**（`package/`）：QML 小部件每 60 秒通过 `Plasma5Support.DataSource` 读取 JSON，在面板上显示 4 根彩色圆角进度条，鼠标悬停显示各服务的详细用量与重置时间。
-
-### 面板显示
-
-![效果图](fig/效果图.png)
-
-### 面板显示
-
-| 颜色 | 用量 | 含义 |
+| 组件 | 路径 | 说明 |
 |------|------|------|
-| 🟢 绿 | 0–50% | 健康 |
-| 🟡 黄 | 50–80% | 注意 |
-| 🟠 橙 | 80–95% | 警告 |
-| 🔴 红 | 95–100% | 即将限速 |
+| Python Poller | `poller/` | 抓取用量并写入 JSON |
+| KDE Plasmoid | `package/` | QML 小部件，读取 JSON 展示 |
+| 安装脚本 | `scripts/` | 安装 / 卸载 / 构建发布包 |
 
-进度条字母含义：`O` = OpenAI Codex，`C` = Claude Code，`K` = Kimi，`M` = MiniMax。
-
-彩色用量条右上角的圆圈表示当前显示的是7天用量。当7天用量超过85%时会自动切换为显示7天用量，否则为自动显示5小时用量。
 ---
 
 ## 前置依赖
@@ -57,19 +52,19 @@ systemd timer（每 X 分钟）
 
 ## 安装
 
-### 方式一：从发布包安装（推荐）
+### 方式一：发布包（推荐）
 
-1. 下载并解压发布包(dist目录)到任意目录（如 `~/show-ai-usage/`）
-2. 进入目录并运行安装脚本：
+1. 下载并解压发布包到任意目录，例如 `~/show-ai-usage/`
+2. 运行安装脚本：
 
 ```bash
 cd ~/show-ai-usage
 ./install.sh
 ```
 
-3. 安装后，右键桌面 → **添加小部件** → 搜索 "AI Usage Monitor" → 拖到面板上
+3. 右键桌面 → **添加小部件** → 搜索 **AI Usage Monitor** → 拖到面板上
 
-### 方式二：从源码安装
+### 方式二：源码
 
 ```bash
 git clone https://github.com/wym68/show_ai_usage.git show-ai-usage
@@ -77,11 +72,15 @@ cd show-ai-usage
 ./scripts/install.sh
 ```
 
-### 首次使用 — 登录各平台
+---
 
-> **安装路径说明**：Plasmoid 小部件和 Python 轮询器是分开安装的——小部件通过 `kpackagetool6` 安装到 `~/.local/share/plasma/plasmoids/`，而 Python 项目留在你解压的目录里。因此所有 `uv run python -m poller.main` 命令都需要在**项目目录**下运行。
+## 首次使用
 
-首次使用前，需在隔离浏览器中手动登录各 AI 平台（登录态保存在 `~/.local/share/show-ai-usage/browser-data/`）：
+> **路径说明**：Plasmoid 通过 `kpackagetool6` 安装到 `~/.local/share/plasma/plasmoids/`，Python 项目留在你解压/克隆的目录中。所有 `uv run python -m poller.main` 命令都需要在项目目录下执行。
+
+### 浏览器登录（Codex 必需，其他可选）
+
+首次使用前，在隔离浏览器中登录各平台。登录态保存在 `~/.local/share/show-ai-usage/browser-data/`，不影响系统浏览器。
 
 ```bash
 uv run python -m poller.main --login codex
@@ -90,7 +89,7 @@ uv run python -m poller.main --login kimi
 uv run python -m poller.main --login minimax
 ```
 
-执行命令后会弹出浏览器窗口，手动完成登录后，回到终端按 **Enter** 保存登录态。
+执行命令后会弹出浏览器窗口，手动完成登录，回到终端按 **Enter** 保存登录态。
 
 ### 测试抓取
 
@@ -104,34 +103,18 @@ uv run python -m poller.main --status
 
 ---
 
-## 卸载
-
-```bash
-./scripts/uninstall.sh          # 停止 timer + 卸载 Plasmoid（保留配置和数据）
-./scripts/uninstall.sh --purge  # 同上 + 删除配置文件和数据文件
-```
-
-> **注意**：卸载后任务栏上的小部件可能仍会显示（显示 N/A），需要手动右键小部件 → **移除**，或运行 `plasmashell --replace` 重启面板。
-
----
-
 ## 配置
 
-### Plasmoid 配置面板
+### 配置面板
 
 右键小部件 → **配置**，包含四个标签页：
 
 | 标签页 | 配置项 |
 |--------|--------|
-| **General** | 界面刷新间隔（秒）、数据过期阈值（秒） |
-| **Data Polling** | 启用/禁用数据抓取、抓取间隔、选择监控的 AI 服务商 |
-| **Display** | 显示模式（5h+7d / 仅5h / 仅7d）、紧凑标签、最大显示数 |
+| **General** | 界面刷新间隔、数据过期阈值 |
+| **Data Polling** | 启用/禁用抓取、抓取间隔、选择监控的服务商 |
+| **Display** | 显示模式（5h+7d / 仅 5h / 仅 7d）、紧凑标签、最大显示数 |
 | **Advanced** | 自定义数据路径、配色方案、自定义颜色 |
-
-在 **Data Polling** 标签页中：
-- 勾选「启用自动数据抓取」后，插件会按设定间隔自动抓取
-- 勾选/取消勾选提供商会**即时生效**（显示端自动过滤，后台配置自动同步）
-- 每个提供商右侧显示对应的登录命令，点击「复制」可直接粘贴到终端执行
 
 ### 配置文件
 
@@ -139,24 +122,23 @@ uv run python -m poller.main --status
 
 ```toml
 [general]
-interval = 300                                          # 抓取间隔（秒）
-enabled_providers = ["codex", "claude", "kimi", "minimax"]  # 启用的服务
+interval = 300                                              # 抓取间隔（秒）
+enabled_providers = ["codex", "claude", "kimi", "minimax"]  # 启用的服务商
 
 [locale]
-# timezone = "Asia/Shanghai"  # 浏览器时区，留空自动检测
+# timezone = "Asia/Shanghai"                                # 浏览器时区，留空自动检测
 ```
 
-### Kimi / MiniMax 直抓 API（第一阶段）
+### 直接 API 抓取（Kimi / MiniMax / Claude Code）
 
-> 目前仅 **Kimi** 与 **MiniMax** 支持直接 API 抓取；**OpenAI Codex** 与 **Claude Code** 仍保持 browser-backed（基于浏览器）的抓取方式，未变更。
+直接抓取跳过 Playwright 浏览器启动，速度更快、不受 Cloudflare 挑战影响。凭据可通过环境变量或 `config.toml` 配置，**环境变量优先级高于配置文件**。
 
-直接抓取跳过 Playwright 浏览器启动，速度更快、不受 Cloudflare 挑战影响。第一阶段实现通过环境变量或 `config.toml` 读取凭据，显式配置优先于环境变量。
-
-| 提供商 | 环境变量 / 配置键 | 说明 |
-|--------|------------------|------|
-| **Kimi** | `KIMI_CODE_ACCESS_TOKEN` / `kimi_code_access_token` | Kimi Code 访问令牌，用于直接调用用量接口 |
-| **MiniMax** | `MINIMAX_API_KEY` / `minimax_api_key` | MiniMax API Key |
-| **MiniMax** | `MINIMAX_API_BASE_URL` / `minimax_api_base_url` | 接口基础地址，默认 `https://api.minimax.io`，可改为 `https://api.minimaxi.com` |
+| 服务商 | 环境变量 | 配置键 | 说明 |
+|--------|----------|--------|------|
+| **Kimi** | `KIMI_CODE_ACCESS_TOKEN` | `kimi_code_access_token` | Kimi Code 访问令牌 |
+| **MiniMax** | `MINIMAX_API_KEY` | `minimax_api_key` | MiniMax API Key |
+| **MiniMax** | `MINIMAX_API_BASE_URL` | `minimax_api_base_url` | 接口基础地址，默认 `https://api.minimax.io`，可改为 `https://api.minimaxi.com` |
+| **Claude Code** | `CLAUDE_CODE_ACCESS_TOKEN` | `claude_code_access_token` | Claude Code OAuth access token |
 
 在 `~/.config/show-ai-usage/config.toml` 的 `[general]` 段添加：
 
@@ -165,23 +147,55 @@ enabled_providers = ["codex", "claude", "kimi", "minimax"]  # 启用的服务
 # ... 其他配置 ...
 direct_fetch_browser_fallback = false  # 直抓失败时是否回退到浏览器抓取（默认 false）
 
-kimi_code_access_token = ""   # 或留空，从 KIMI_CODE_ACCESS_TOKEN 读取
-minimax_api_key = ""          # 或留空，从 MINIMAX_API_KEY 读取
+kimi_code_access_token = ""            # 或留空，从 KIMI_CODE_ACCESS_TOKEN 读取
+minimax_api_key = ""                   # 或留空，从 MINIMAX_API_KEY 读取
 minimax_api_base_url = "https://api.minimax.io"
+claude_code_access_token = ""          # 或留空，优先读取 CLAUDE_CODE_ACCESS_TOKEN
 ```
 
-- `direct_fetch_browser_fallback = false`（默认）时，直抓失败直接报错，不会悄悄切回浏览器。
-- 第一阶段直抓仅覆盖用量与配额读取；**MiniMax 的订阅积分（积分余额 / mmx quota）仍通过相同接口返回**，但充值、赠送积分的细分不展示。
-- 未配置对应凭据时，Kimi / MiniMax 自动走原有浏览器登录路径（与 Codex / Claude 一致）。
+- `direct_fetch_browser_fallback = false`（默认）时，Claude / Kimi / MiniMax 直抓失败直接报错，不会悄悄切回浏览器；设为 `true` 时才会回退到浏览器抓取。
+- **Claude 令牌来源优先级**：环境变量 / 配置键 → `~/.claude/.credentials.json` 中的 `claudeAiOauth.accessToken`（或 `access_token`）。
+- 直抓不会刷新 OAuth 令牌；access token 过期后需重新登录 Claude Code 或更新配置。
+- Claude 直抓端点 `https://api.anthropic.com/api/oauth/usage` 为未公开的逆向接口，可能随时变更，不保证长期稳定。
 
-#### 常见问题
+---
+
+## 面板显示
+
+![效果图](fig/效果图.png)
+
+| 颜色 | 用量 | 含义 |
+|------|------|------|
+| 🟢 绿 | 0–50% | 健康 |
+| 🟡 黄 | 50–80% | 注意 |
+| 🟠 橙 | 80–95% | 警告 |
+| 🔴 红 | 95–100% | 即将限速 |
+
+进度条字母含义：`O` = OpenAI Codex，`C` = Claude Code，`K` = Kimi，`M` = MiniMax。
+
+当 7 天用量超过 85% 时，小部件会自动切换为显示 7 天用量；否则显示 5 小时用量。
+
+---
+
+## 常见问题
 
 | 现象 | 原因 | 处理 |
 |------|------|------|
-| Kimi / MiniMax 报错缺少凭据 | 未设置环境变量，且 `config.toml` 中对应字段为空 | 设置 `KIMI_CODE_ACCESS_TOKEN` 或 `MINIMAX_API_KEY`，或在配置文件中填写 |
-| 直抓返回 401 / 403 | Token 失效、权限不足或 base URL 错误 | 检查令牌有效期；确认 `minimax_api_base_url` 为 `https://api.minimaxi.com` 或 `https://api.minimax.io` |
-| 直抓超时或失败 | 网络问题或接口变更 | 临时开启 `direct_fetch_browser_fallback = true` 回退到浏览器抓取，并查看日志 |
-| Codex / Claude 没有直抓选项 | 目前仅 Kimi / MiniMax 支持直抓 | 继续使用 `--login codex` / `--login claude` 浏览器登录 |
+| Kimi / MiniMax / Claude 报错缺少凭据 | 未设置环境变量，且 `config.toml` 中对应字段为空 | 设置对应环境变量或在配置文件中填写 |
+| 直抓返回 401 / 403 | Token 失效、权限不足或 base URL 错误 | 检查令牌有效期；确认 MiniMax base URL 正确 |
+| 直抓超时或失败 | 网络问题或接口变更 | 临时开启 `direct_fetch_browser_fallback = true` 回退到浏览器抓取 |
+| OpenAI Codex 没有直抓选项 | Codex 仍需要浏览器登录态 | 继续使用 `--login codex` 浏览器登录 |
+
+---
+
+## 卸载
+
+```bash
+./scripts/uninstall.sh          # 停止 timer + 卸载 Plasmoid（保留配置和数据）
+./scripts/uninstall.sh --purge  # 同上 + 删除配置文件和数据文件
+```
+
+> 卸载后任务栏上的小部件可能仍会显示（显示 N/A），需要手动右键小部件 → **移除**，或运行 `plasmashell --replace` 重启面板。
 
 ---
 
@@ -197,7 +211,7 @@ uv run python -m poller.main --status
 # 调试某个 provider（有头浏览器 + 保存页面到 /tmp/）
 uv run python -m poller.main --debug --providers codex
 
-# 查看/手动触发 systemd timer
+# 查看 / 手动触发 systemd timer
 systemctl --user status show-ai-usage.timer
 systemctl --user start show-ai-usage.service
 

@@ -772,21 +772,70 @@ env QML_XHR_ALLOW_FILE_READ=1 plasmawindowed showaiusage
 | **Kimi** | Kimi 订阅计划 | 使用量、剩余额度、重置时间 | [kimi.com/code/console](https://www.kimi.com/code/console) |
 | **MiniMax** | Token Plan (Plus / Max / Ultra) | 5小时滚动额度、7天滚动额度、剩余订阅积分 | [platform.minimaxi.com/console/usage](https://platform.minimaxi.com/console/usage) |
 
-### 关于 Kimi / MiniMax 直抓 API（第一阶段）
+### 关于 Kimi / MiniMax / Claude 直抓 API（第一阶段）
 
-> **阶段限制**：目前仅 Kimi 与 MiniMax 支持直接 API 抓取；**OpenAI Codex 与 Claude Code 仍保持 browser-backed（基于浏览器）抓取路径**，未提供直抓模式。
+> **阶段限制**：目前 **Kimi、MiniMax 与 Claude Code** 支持直接 API 抓取；**OpenAI Codex 仍保持 browser-backed（基于浏览器）抓取路径**，未提供直抓模式。
 
 | 项 | 说明 |
 |----|------|
 | **Kimi 凭据** | `KIMI_CODE_ACCESS_TOKEN`（环境变量）或 `kimi_code_access_token`（`[general]` 配置） |
 | **MiniMax 凭据** | `MINIMAX_API_KEY`（环境变量）或 `minimax_api_key`（`[general]` 配置） |
 | **MiniMax 接口地址** | `MINIMAX_API_BASE_URL` / `minimax_api_base_url`，默认 `https://api.minimax.io`，可选 `https://api.minimaxi.com` |
+| **Claude 凭据** | `CLAUDE_CODE_ACCESS_TOKEN`（环境变量）或 `claude_code_access_token`（`[general]` 配置）；未设置时读取 `~/.claude/.credentials.json` 中 `claudeAiOauth.accessToken`（或 `access_token`） |
 | **直抓失败回退** | 由 `direct_fetch_browser_fallback` 控制，默认 `false`；为 `true` 时直抓失败会回退到浏览器抓取 |
 | **MiniMax 积分余额** | 直抓返回的“mmx quota”/订阅积分与浏览器端一致，但第一阶段不区分订阅积分、充值积分、赠送积分 |
 
-未配置对应凭据时，Kimi / MiniMax 与 Codex / Claude 一样使用浏览器登录抓取。`--show-config` 输出会自动脱敏这些凭据字段，避免泄露。
+未配置对应凭据时，Claude / Kimi / MiniMax 直抓会报告缺少凭据；只有开启 `direct_fetch_browser_fallback = true` 时才会回退到浏览器抓取（与 Codex 一致）。`--show-config` 输出会自动脱敏这些凭据字段，避免泄露。
 
 ---
+
+### Claude 直抓 API 架构（第一阶段）
+
+Claude Code 除了浏览器抓取路径外，还支持直接调用 Anthropic 的 OAuth usage 端点。该端点**未经 Anthropic 官方文档公开，属于逆向工程所得，可能随时变更**，不保证长期稳定。
+
+**端点与请求头**
+
+- 端点：`https://api.anthropic.com/api/oauth/usage`
+- 方法：`GET`
+- 头部：
+  - `Authorization: Bearer <oauth-access-token>`
+  - `anthropic-beta: oauth-2025-04-20`
+  - `Accept: application/json`
+  - `User-Agent: show-ai-usage-poller/1.0`
+
+**凭据解析顺序**
+
+`_resolve_token()` 按以下顺序查找可用的 OAuth access token（第一个非空值生效）：
+
+1. `config.claude_code_access_token`（对应环境变量 `CLAUDE_CODE_ACCESS_TOKEN`）
+2. `~/.claude/.credentials.json` 中 `claudeAiOauth.accessToken`
+3. `~/.claude/.credentials.json` 中 `claudeAiOauth.access_token`
+4. `~/.claude/.credentials.json` 顶层 `accessToken`
+5. `~/.claude/.credentials.json` 顶层 `access_token`
+
+注意：第一阶段不会使用 `refreshToken` 刷新 access token；token 过期后需要重新登录 Claude Code 或手动更新配置。
+
+**响应解析**
+
+返回的 JSON 中：
+
+- `five_hour.utilization` → `UsageData.window_5h_percent`（已用百分比，clamp 到 0–100）
+- `five_hour.resets_at`（ISO 8601）→ 经 `_format_iso_reset_time()` 转换为 `UsageData.reset_5h`
+- `seven_day.utilization` → `UsageData.window_7d_percent`
+- `seven_day.resets_at`（ISO 8601）→ 经 `_format_iso_reset_time()` 转换为 `UsageData.reset_7d`
+
+其它字段（如按模型细分的 `seven_day_sonnet`、`seven_day_opus`，以及 `extra_usage` 等）第一阶段暂不解析。
+
+**ISO 重置时间转换**
+
+`_format_iso_reset_time()` 接收带时区或 `Z` 结尾的 ISO 8601 时间，计算与 UTC 当前的差值，输出与现有 `format_reset_time()` 一致的中文相对时间，例如：
+
+- `2026-06-13T10:00:00+00:00` → `2小时后重置`
+- 已过期或不足 1 小时 → `即将重置`
+
+**回退行为**
+
+`fetch_direct()` 在缺少凭据、网络错误、鉴权失败或解析失败时返回带 `error` 字段的 `UsageData`，错误信息中不会包含 token 或上游响应体。当 `direct_fetch_browser_fallback = true` 时，poller 会再尝试浏览器抓取路径；默认 `false` 时直接上报错误。
 
 ## Provider 实现详解
 
