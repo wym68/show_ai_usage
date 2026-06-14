@@ -26,6 +26,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -33,7 +34,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from poller.config import Config
-from poller.providers.base import UsageData
+from poller.providers.base import UsageData, format_reset_time
 from poller.providers.direct import DirectFetchProvider
 from poller.providers.kimi import (
     KIMI_USAGES_URL,
@@ -72,24 +73,46 @@ def _write_credentials(home: Path, body: dict[str, Any] | None) -> Path:
     return target
 
 
-def _limit_5h(*, used: float = 25, limit: float = 100, resetIn: int = 3600) -> dict[str, Any]:
-    return {
-        "window": {"duration": 300, "timeUnit": "MINUTE"},
-        "used": used,
-        "limit": limit,
-        "resetIn": resetIn,
+def _limit_5h(
+    *, used: float = 25, limit: float = 100, resetIn: int = 3600, nested: bool = True
+) -> dict[str, Any]:
+    detail = {"limit": limit, "used": used}
+    if resetIn is not None:
+        detail["resetIn"] = resetIn
+    row: dict[str, Any] = {
+        "window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+        "detail": detail,
     }
+    if not nested:
+        row = {
+            "window": {"duration": 300, "timeUnit": "MINUTE"},
+            "used": used,
+            "limit": limit,
+        }
+        if resetIn is not None:
+            row["resetIn"] = resetIn
+    return row
 
 
 def _limit_weekly_minutes(
-    *, used: float = 450, limit: float = 1500, resetAt: str = "2026-06-15T00:00:00Z"
+    *,
+    used: float = 450,
+    limit: float = 1500,
+    resetAt: str = "2026-06-15T00:00:00Z",
+    nested: bool = False,
 ) -> dict[str, Any]:
-    return {
+    row: dict[str, Any] = {
         "window": {"duration": 10080, "timeUnit": "MINUTE"},
         "used": used,
         "limit": limit,
         "resetAt": resetAt,
     }
+    if nested:
+        row = {
+            "window": {"duration": 10080, "timeUnit": "TIME_UNIT_MINUTE"},
+            "detail": {"used": used, "limit": limit, "resetAt": resetAt},
+        }
+    return row
 
 
 def _limit_weekly_days(
@@ -100,6 +123,17 @@ def _limit_weekly_days(
         "used": used,
         "limit": limit,
         "reset_time": reset_time,
+    }
+
+
+def _limit_5h_legacy(
+    *, used: float = 25, limit: float = 100, resetIn: int = 3600
+) -> dict[str, Any]:
+    return {
+        "window": {"duration": 300, "timeUnit": "MINUTE"},
+        "used": used,
+        "limit": limit,
+        "resetIn": resetIn,
     }
 
 
@@ -452,21 +486,21 @@ def test_select_weekly_row_by_label_chinese_7天() -> None:
 
 def test_percent_used_over_limit() -> None:
     """``used / limit * 100`` is the canonical percent rule."""
-    pct, err = _kimi_percent_from_row({"used": 25, "limit": 100})
+    pct, err = _kimi_percent_from_row({"detail": {"used": 25, "limit": 100}})
     assert pct == pytest.approx(25.0)
     assert err is None
 
 
 def test_percent_remaining_minus_limit() -> None:
     """If ``used`` is missing, ``used = limit - remaining``."""
-    pct, err = _kimi_percent_from_row({"limit": 100, "remaining": 75})
+    pct, err = _kimi_percent_from_row({"detail": {"limit": 100, "remaining": 75}})
     assert pct == pytest.approx(25.0)
     assert err is None
 
 
 def test_percent_zero_limit_returns_error() -> None:
     """``limit <= 0`` is a parse error per plan rule."""
-    pct, err = _kimi_percent_from_row({"used": 0, "limit": 0})
+    pct, err = _kimi_percent_from_row({"detail": {"used": 0, "limit": 0}})
     assert pct is None
     assert err is not None
     assert "limit must be > 0" in err
@@ -474,7 +508,7 @@ def test_percent_zero_limit_returns_error() -> None:
 
 def test_percent_negative_limit_returns_error() -> None:
     """``limit < 0`` is also a parse error."""
-    pct, err = _kimi_percent_from_row({"used": 0, "limit": -5})
+    pct, err = _kimi_percent_from_row({"detail": {"used": 0, "limit": -5}})
     assert pct is None
     assert err is not None
 
@@ -493,8 +527,15 @@ def test_percent_no_data_returns_none_none() -> None:
 
 def test_percent_clamps_to_100() -> None:
     """``used > limit`` (shouldn't happen, but be safe) is clamped to 100%."""
-    pct, err = _kimi_percent_from_row({"used": 150, "limit": 100})
+    pct, err = _kimi_percent_from_row({"detail": {"used": 150, "limit": 100}})
     assert pct == 100.0
+    assert err is None
+
+
+def test_percent_falls_back_to_top_level_fields() -> None:
+    """Rows without ``detail`` still use top-level ``used`` / ``limit``."""
+    pct, err = _kimi_percent_from_row(_limit_5h_legacy(used=40, limit=100))
+    assert pct == pytest.approx(40.0)
     assert err is None
 
 
@@ -506,7 +547,7 @@ def test_percent_clamps_to_100() -> None:
 def test_reset_iso_timestamp_passthrough() -> None:
     """ISO timestamp strings are returned verbatim."""
     out = _kimi_reset_from_row(
-        {"resetAt": "2026-06-15T00:00:00Z"},
+        {"detail": {"resetAt": "2026-06-15T00:00:00Z"}},
         timezone_id="UTC",
     )
     assert out == "2026-06-15T00:00:00Z"
@@ -515,7 +556,7 @@ def test_reset_iso_timestamp_passthrough() -> None:
 def test_reset_seconds_become_english_duration() -> None:
     """``resetIn`` seconds are formatted as English duration."""
     out = _kimi_reset_from_row(
-        {"resetIn": 3600 + 1800},
+        {"detail": {"resetIn": 3600 + 1800}},
         timezone_id="UTC",
     )
     assert out == "1 hr 30 min"
@@ -523,15 +564,18 @@ def test_reset_seconds_become_english_duration() -> None:
 
 def test_reset_seconds_days() -> None:
     """Large seconds values produce a day-bearing English duration."""
-    out = _kimi_reset_from_row({"ttl": 3 * 86400 + 2 * 3600 + 30 * 60}, timezone_id="UTC")
+    out = _kimi_reset_from_row(
+        {"detail": {"ttl": 3 * 86400 + 2 * 3600 + 30 * 60}},
+        timezone_id="UTC",
+    )
     assert out == "3 day 2 hr 30 min"
 
 
 def test_reset_zero_or_negative_seconds_skipped() -> None:
     """Non-positive ``resetIn`` is treated as absent."""
-    out = _kimi_reset_from_row({"resetIn": 0}, timezone_id="UTC")
+    out = _kimi_reset_from_row({"detail": {"resetIn": 0}}, timezone_id="UTC")
     assert out is None
-    out = _kimi_reset_from_row({"resetIn": -10}, timezone_id="UTC")
+    out = _kimi_reset_from_row({"detail": {"resetIn": -10}}, timezone_id="UTC")
     assert out is None
 
 
@@ -542,19 +586,102 @@ def test_reset_none_row_returns_none() -> None:
 
 def test_reset_no_recognised_key_returns_none() -> None:
     """A row without any reset field yields ``None``."""
-    assert _kimi_reset_from_row({"used": 1, "limit": 10}, timezone_id="UTC") is None
+    assert _kimi_reset_from_row({"detail": {"used": 1, "limit": 10}}, timezone_id="UTC") is None
 
 
 def test_reset_uses_first_matching_key_in_order() -> None:
     """The first recognised key wins (plan-defined order)."""
     out = _kimi_reset_from_row(
         {
-            "resetIn": 7200,  # 2 hr — ignored (later in plan order)
-            "resetAt": "2026-06-15T00:00:00Z",  # wins (ISO listed first)
+            "detail": {
+                "resetIn": 7200,
+                "resetAt": "2026-06-15T00:00:00Z",
+            },
         },
         timezone_id="UTC",
     )
     assert out == "2026-06-15T00:00:00Z"
+
+
+def test_reset_prefers_detail_over_top_level() -> None:
+    """``detail`` reset values take precedence over top-level values."""
+    out = _kimi_reset_from_row(
+        {
+            "resetIn": 3600,
+            "detail": {"resetIn": 7200},
+        },
+        timezone_id="UTC",
+    )
+    assert out == "2 hr"
+
+
+def test_reset_falls_back_to_top_level_fields() -> None:
+    """Rows without ``detail`` still read top-level reset keys."""
+    out = _kimi_reset_from_row(_limit_5h_legacy(resetIn=1800), timezone_id="UTC")
+    assert out == "30 min"
+
+
+# ---------------------------------------------------------------------------
+# Reset formatting: ISO timestamps
+# ---------------------------------------------------------------------------
+
+
+def _fake_datetime_class(fixed_now: datetime) -> type[datetime]:
+    """Return a datetime subclass whose ``now`` returns a fixed value."""
+
+    class FakeDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz else fixed_now
+
+    return FakeDatetime
+
+
+def test_format_reset_time_parses_iso_utc_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Kimi's ``resetAt`` ISO UTC string becomes a relative reset string."""
+    fixed_now = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "poller.providers.base.datetime",
+        _fake_datetime_class(fixed_now),
+    )
+
+    out = format_reset_time("2026-06-15T00:00:00Z", "kimi", "Asia/Shanghai")
+    assert out == "12小时后重置"
+
+
+def test_format_reset_time_parses_iso_offset_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ISO timestamps with an explicit offset are handled correctly."""
+    fixed_now = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "poller.providers.base.datetime",
+        _fake_datetime_class(fixed_now),
+    )
+
+    out = format_reset_time("2026-06-15T08:00:00+08:00", "kimi", "Asia/Shanghai")
+    assert out == "12小时后重置"
+
+
+def test_kimi_usages_parser_formats_iso_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A top-level ``usage`` ISO ``reset_time`` is formatted, not returned raw."""
+    fixed_now = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "poller.providers.base.datetime",
+        _fake_datetime_class(fixed_now),
+    )
+
+    payload = {
+        "usage": {"used": 450, "limit": 1500, "reset_time": "2026-06-15T00:00:00Z"},
+        "limits": [_limit_5h(resetIn=3600)],
+    }
+    result = KimiProvider(timezone_id="Asia/Shanghai")._parse_usages_payload(payload)
+    assert result.reset_7d == "12小时后重置"
+    assert result.reset_5h == "1小时后重置"
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +702,6 @@ def test_kimi_usages_parser_full_payload() -> None:
     assert result.window_5h_percent == pytest.approx(25.0)
     assert result.window_7d_percent == pytest.approx(30.0)
     assert result.error is None
-    # 5h reset was ``resetIn=3600`` → 1 hr → "1小时后重置"
     assert result.reset_5h == "1小时后重置"
 
 
@@ -597,7 +723,10 @@ def test_kimi_usages_parser_remaining_field() -> None:
     """A row with ``remaining`` (no ``used``) still produces a percent."""
     payload = {
         "limits": [
-            {"window": {"duration": 300, "timeUnit": "MINUTE"}, "limit": 100, "remaining": 40},
+            {
+                "window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+                "detail": {"limit": 100, "remaining": 40},
+            },
         ],
     }
     result = KimiProvider()._parse_usages_payload(payload)
@@ -632,15 +761,44 @@ def test_kimi_usages_parser_limit_zero_error() -> None:
     payload = {
         "limits": [
             {
-                "window": {"duration": 300, "timeUnit": "MINUTE"},
-                "used": 0,
-                "limit": 0,
+                "window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+                "detail": {"used": 0, "limit": 0},
             },
         ],
     }
     result = KimiProvider()._parse_usages_payload(payload)
     assert result.error is not None
     assert "limit must be > 0" in result.error
+
+
+def test_kimi_usages_parser_real_api_shape() -> None:
+    """Observed Kimi API shape: 7-day summary in ``usage``, 5h in ``limits[].detail``."""
+    payload = {
+        "usage": {
+            "limit": "100",
+            "used": "61",
+            "remaining": "39",
+            "resetTime": "2026-06-16T15:41:32.628972Z",
+        },
+        "limits": [
+            {
+                "window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+                "detail": {
+                    "limit": "100",
+                    "used": "59",
+                    "remaining": "41",
+                    "resetTime": "2026-06-14T14:41:32.628972Z",
+                },
+            }
+        ],
+    }
+    result = KimiProvider(timezone_id="Asia/Shanghai")._parse_usages_payload(payload)
+    assert result.window_5h_percent == pytest.approx(59.0)
+    assert result.window_7d_percent == pytest.approx(61.0)
+    assert result.error is None
+    assert result.reset_5h is not None
+    assert result.reset_7d is not None
+
 
 
 # ---------------------------------------------------------------------------
@@ -662,8 +820,8 @@ def test_helper_urllib_error_constructor() -> None:
 
 def urllib_error(code: int, reason: str):
     """Build a real ``urllib.error.HTTPError`` without making a network call."""
-    from email.message import Message
     import urllib.error
+    from email.message import Message
 
     return urllib.error.HTTPError(
         url=KIMI_USAGES_URL,

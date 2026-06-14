@@ -12,6 +12,14 @@ When neither path can run, :meth:`fetch_direct` returns a
 :class:`UsageData` whose ``error`` field explains the missing
 credential situation. The poller can then choose to fall back to
 the browser path via :attr:`Config.direct_fetch_browser_fallback`.
+
+API payload shape (observed):
+
+* ``usage`` — weekly/7-day summary (``used``, ``limit``, ``remaining``,
+  ``resetTime``).
+* ``limits[]`` — rate-limit rows. Each row has a ``window`` plus a
+  ``detail`` object that carries the actual numbers
+  (``used``, ``limit``, ``remaining``, ``resetTime``).
 """
 
 import json
@@ -143,6 +151,10 @@ class KimiProvider(BaseProvider):
         is the top-level ``usage`` summary, or first ``limits[]``
         item with ``duration==7``+``DAY`` or ``duration==10080``+``MINUTE``
         (or label matches ``weekly`` / ``week`` / ``7d`` / ``7天``).
+
+        Actual payloads nest the numbers inside a ``detail`` object under
+        each ``limits[]`` row; the top-level ``usage`` object is used
+        directly for the weekly summary.
         """
         if not isinstance(payload, dict):
             return KimiProvider._error_usage(
@@ -446,11 +458,19 @@ def _kimi_percent_from_row(row: dict[str, Any] | None) -> tuple[float | None, st
     is set when ``limit <= 0`` (per plan rule); ``percent`` is ``None``
     when the row is absent or carries neither ``used`` nor
     ``remaining``+``limit``.
+
+    Actual payloads put the numbers inside a ``detail`` sub-object. We
+    read from ``detail`` first, then fall back to the row's top-level
+    fields for backward compatibility.
     """
     if row is None:
         return None, None
 
-    limit = row.get("limit")
+    data = row.get("detail")
+    if not isinstance(data, dict):
+        data = row
+
+    limit = data.get("limit")
     try:
         limit_f = float(limit) if limit is not None else None
     except (TypeError, ValueError):
@@ -458,10 +478,10 @@ def _kimi_percent_from_row(row: dict[str, Any] | None) -> tuple[float | None, st
     if limit_f is not None and limit_f <= 0:
         return None, f"Kimi payload limit must be > 0 (got {limit_f})"
 
-    used = row.get("used")
+    used = data.get("used")
     used_f: float | None
     if used is None:
-        remaining = row.get("remaining")
+        remaining = data.get("remaining")
         try:
             used_f = (
                 limit_f - float(remaining)
@@ -490,22 +510,31 @@ def _kimi_reset_from_row(row: dict[str, Any] | None, *, timezone_id: str) -> str
     are returned verbatim so :func:`format_reset_time` parses them as
     absolute times; integer/seconds values are formatted as English
     duration so the same function parses them as relative durations.
+
+    Real payloads put the reset time inside ``row['detail']['resetTime']``;
+    we look there first and then fall back to the row's top-level keys.
     Returns ``None`` if no recognised reset field is present.
     """
     if row is None:
         return None
 
-    for key in _KIMI_RESET_KEYS:
-        value = row.get(key)
-        if value is None:
-            continue
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            seconds = int(value)
-            if seconds <= 0:
+    candidates = [row]
+    detail = row.get("detail")
+    if isinstance(detail, dict):
+        candidates.insert(0, detail)
+
+    for data in candidates:
+        for key in _KIMI_RESET_KEYS:
+            value = data.get(key)
+            if value is None:
                 continue
-            return _seconds_to_english_duration(seconds)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                seconds = int(value)
+                if seconds <= 0:
+                    continue
+                return _seconds_to_english_duration(seconds)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     return None
 
 
