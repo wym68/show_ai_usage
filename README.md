@@ -12,8 +12,8 @@ KDE Plasma 6 任务栏小部件，实时监控 **OpenAI Codex、Claude Code、Ki
 
 - **多平台用量监控**：OpenAI Codex、Claude Code、Kimi、MiniMax
 - **双模式抓取**：
-  - 浏览器自动化（Playwright + Edge，适合 Codex 等需要登录态的平台）
-  - 直接 API 抓取（Kimi / MiniMax / Claude Code，无需启动浏览器）
+  - 浏览器自动化（Playwright + Edge，适合 Codex / Claude Code 等需要登录态的平台）
+  - 直接 API 抓取（Kimi / MiniMax，无需启动浏览器）
 - **可视化面板**：4 根彩色圆角进度条，悬停显示详细用量与重置时间
 - **用量阈值配色**：绿 / 黄 / 橙 / 红，一眼识别限速风险
 - **灵活配置**：抓取间隔、启用的服务商、显示模式、数据路径、配色均可自定义
@@ -72,13 +72,14 @@ cd show-ai-usage
 ./scripts/install.sh
 ```
 
+右键桌面 → **添加小部件** → 搜索 **AI Usage Monitor** → 拖到面板上
 ---
 
 ## 首次使用
 
 > **路径说明**：Plasmoid 通过 `kpackagetool6` 安装到 `~/.local/share/plasma/plasmoids/`，Python 项目留在你解压/克隆的目录中。所有 `uv run python -m poller.main` 命令都需要在项目目录下执行。
 
-### 浏览器登录（Codex 必需，其他可选）
+### 浏览器登录（Codex / Claude Code 必需，其他可选）
 
 首次使用前，在隔离浏览器中登录各平台。登录态保存在 `~/.local/share/show-ai-usage/browser-data/`，不影响系统浏览器。
 
@@ -129,7 +130,7 @@ enabled_providers = ["codex", "claude", "kimi", "minimax"]  # 启用的服务商
 # timezone = "Asia/Shanghai"                                # 浏览器时区，留空自动检测
 ```
 
-### 直接 API 抓取（Kimi / MiniMax / Claude Code）
+### 直接 API 抓取（Kimi / MiniMax）
 
 直接抓取跳过 Playwright 浏览器启动，速度更快、不受 Cloudflare 挑战影响。凭据可通过环境变量或 `config.toml` 配置，**环境变量优先级高于配置文件**。
 
@@ -138,7 +139,6 @@ enabled_providers = ["codex", "claude", "kimi", "minimax"]  # 启用的服务商
 | **Kimi** | `KIMI_CODE_ACCESS_TOKEN` | `kimi_code_access_token` | Kimi Code 访问令牌 |
 | **MiniMax** | `MINIMAX_API_KEY` | `minimax_api_key` | MiniMax API Key |
 | **MiniMax** | `MINIMAX_API_BASE_URL` | `minimax_api_base_url` | 接口基础地址，默认 `https://api.minimax.io`，可改为 `https://api.minimaxi.com` |
-| **Claude Code** | `CLAUDE_CODE_ACCESS_TOKEN` | `claude_code_access_token` | Claude Code OAuth access token |
 
 在 `~/.config/show-ai-usage/config.toml` 的 `[general]` 段添加：
 
@@ -150,13 +150,9 @@ direct_fetch_browser_fallback = false  # 直抓失败时是否回退到浏览器
 kimi_code_access_token = ""            # 或留空，从 KIMI_CODE_ACCESS_TOKEN 读取
 minimax_api_key = ""                   # 或留空，从 MINIMAX_API_KEY 读取
 minimax_api_base_url = "https://api.minimax.io"
-claude_code_access_token = ""          # 或留空，优先读取 CLAUDE_CODE_ACCESS_TOKEN
 ```
 
-- `direct_fetch_browser_fallback = false`（默认）时，Claude / Kimi / MiniMax 直抓失败直接报错，不会悄悄切回浏览器；设为 `true` 时才会回退到浏览器抓取。
-- **Claude 令牌来源优先级**：环境变量 / 配置键 → `~/.claude/.credentials.json` 中的 `claudeAiOauth.accessToken`（或 `access_token`）。
-- 直抓不会刷新 OAuth 令牌；access token 过期后需重新登录 Claude Code 或更新配置。
-- Claude 直抓端点 `https://api.anthropic.com/api/oauth/usage` 为未公开的逆向接口，可能随时变更，不保证长期稳定。
+- `direct_fetch_browser_fallback = false`（默认）时，Kimi / MiniMax 直抓失败直接报错，不会悄悄切回浏览器；设为 `true` 时才会回退到浏览器抓取。
 
 ---
 
@@ -181,10 +177,10 @@ claude_code_access_token = ""          # 或留空，优先读取 CLAUDE_CODE_AC
 
 | 现象 | 原因 | 处理 |
 |------|------|------|
-| Kimi / MiniMax / Claude 报错缺少凭据 | 未设置环境变量，且 `config.toml` 中对应字段为空 | 设置对应环境变量或在配置文件中填写 |
+| Kimi / MiniMax 报错缺少凭据 | 未设置环境变量，且 `config.toml` 中对应字段为空 | 设置对应环境变量或在配置文件中填写 |
 | 直抓返回 401 / 403 | Token 失效、权限不足或 base URL 错误 | 检查令牌有效期；确认 MiniMax base URL 正确 |
 | 直抓超时或失败 | 网络问题或接口变更 | 临时开启 `direct_fetch_browser_fallback = true` 回退到浏览器抓取 |
-| OpenAI Codex 没有直抓选项 | Codex 仍需要浏览器登录态 | 继续使用 `--login codex` 浏览器登录 |
+| OpenAI Codex / Claude Code 没有直抓选项 | Codex 与 Claude Code 仍需要浏览器登录态 | 继续使用 `--login codex` / `--login claude` 浏览器登录 |
 
 ---
 
