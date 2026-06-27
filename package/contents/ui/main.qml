@@ -95,7 +95,7 @@ PlasmoidItem {
         engine: "executable"
         connectedSources: []
 
-        onNewData: {
+        onNewData: function(sourceName, data) {
             var stdout = data["stdout"] || ""
             if (stdout.length > 0) {
                 try {
@@ -122,6 +122,7 @@ PlasmoidItem {
     compactRepresentation: CompactRepresentation {
         providers: root.providers
         errorMessage: root.errorMessage
+        onToggleExpanded: root.expanded = !root.expanded
     }
 
     fullRepresentation: FullRepresentation {
@@ -161,7 +162,8 @@ PlasmoidItem {
 
         _lastPollingConfig = { enabled: enabled, interval: interval, providers: providers }
 
-        var scriptPath = Plasmoid.file("scripts/sync_config.py")
+        var scriptUrl = Qt.resolvedUrl("../scripts/sync_config.py").toString()
+        var scriptPath = scriptUrl.substring(0, 7) === "file://" ? scriptUrl.substring(7) : scriptUrl
         var cmd
         if (enabled) {
             cmd = "python3 " + scriptPath + " --enable --interval " + interval + " --providers " + providers
@@ -176,7 +178,7 @@ PlasmoidItem {
         engine: "executable"
         connectedSources: []
 
-        onNewData: {
+        onNewData: function(sourceName, data) {
             var stdout = data["stdout"] || ""
             var stderr = data["stderr"] || ""
             if (stderr.length > 0) {

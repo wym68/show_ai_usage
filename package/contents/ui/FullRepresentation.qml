@@ -59,6 +59,17 @@ Item {
         return map[raw] || raw
     }
 
+    // Usage/console page each provider links to (opened in the default browser).
+    function providerUrl(raw) {
+        var map = {
+            "codex":      "https://chatgpt.com/codex/cloud/settings/analytics",
+            "claude":     "https://claude.ai/new#settings/usage",
+            "kimi":       "https://www.kimi.com/code/console",
+            "minimax":    "https://platform.minimaxi.com/console/usage"
+        }
+        return map[raw] || ""
+    }
+
     function formatPercent(value) {
         return Math.round(value) + "%"
     }
@@ -200,11 +211,24 @@ Item {
                             spacing: Kirigami.Units.smallSpacing
 
                             Controls.Label {
+                                readonly property string _url: root.providerUrl(provider && provider.provider)
+
                                 Layout.fillWidth: true
-                                text: root.displayName(provider && provider.provider)
+                                text: _url.length > 0
+                                    ? "<a href=\"" + _url + "\" style=\"text-decoration:none; color:"
+                                        + Kirigami.Theme.textColor + ";\">"
+                                        + root.displayName(provider && provider.provider) + "</a>"
+                                    : root.displayName(provider && provider.provider)
+                                textFormat: Text.RichText
                                 color: Kirigami.Theme.textColor
                                 font.bold: true
                                 font.pixelSize: Kirigami.Theme.defaultFont.pixelSize * 1.15
+                                onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+
+                                HoverHandler {
+                                    enabled: parent._url.length > 0
+                                    cursorShape: Qt.PointingHandCursor
+                                }
                             }
 
                             UsageRow {

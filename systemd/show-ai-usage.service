@@ -6,6 +6,10 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# Provider credentials (KIMI_CODE_ACCESS_TOKEN, MINIMAX_API_KEY, ...) are
+# read env-first. The leading "-" makes the file optional so the unit still
+# starts if it is absent.
+EnvironmentFile=-%h/.config/show-ai-usage/secrets.env
 ExecStart=@@UV_PATH@@ run --directory @@PROJECT_DIR@@ python -m poller.main --oneshot
 WorkingDirectory=@@PROJECT_DIR@@
 User=%u

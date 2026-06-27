@@ -10,6 +10,9 @@ Item {
     property var providers: []
     property string errorMessage: ""
 
+    // Emitted on left-click; main.qml toggles the full-representation popup.
+    signal toggleExpanded()
+
     readonly property real _pillH: Kirigami.Units.gridUnit * 1.4
     readonly property real _gap: Kirigami.Units.smallSpacing
 
@@ -140,5 +143,14 @@ Item {
         text: root.errorMessage ? "N/A" : "⋯"
         color: Kirigami.Theme.textColor
         font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
+    }
+
+    // ── Click to toggle the full-representation popup ──────────
+    // Topmost, fills the whole widget. The pills/text above are plain
+    // Rectangles/Text that don't accept mouse events, so clicks reach here.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        onClicked: root.toggleExpanded()
     }
 }
