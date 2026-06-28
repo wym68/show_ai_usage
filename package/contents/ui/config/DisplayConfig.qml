@@ -8,6 +8,7 @@ KCM.AbstractKCM {
     property alias cfg_displayMode: displayModeCombo.currentIndex
     property alias cfg_showProviderLabels: showLabelsCheck.checked
     property alias cfg_compactMaxProviders: maxProvidersSpin.value
+    property alias cfg_compactPillWidth: pillWidthSpin.value
 
     Kirigami.FormLayout {
         QQC2.ComboBox {
@@ -32,6 +33,20 @@ KCM.AbstractKCM {
         QQC2.Label {
             Kirigami.FormData.label: ""
             text: "超出最大显示数的 provider 将被折叠"
+            color: Kirigami.Theme.disabledTextColor
+            wrapMode: Text.WordWrap
+        }
+
+        QQC2.SpinBox {
+            id: pillWidthSpin
+            Kirigami.FormData.label: "每项宽度:"
+            from: 2
+            to: 12
+        }
+
+        QQC2.Label {
+            Kirigami.FormData.label: ""
+            text: "紧凑模式中单个 provider 的宽度（gridUnit 倍数），总宽 = 个数 × 此值"
             color: Kirigami.Theme.disabledTextColor
             wrapMode: Text.WordWrap
         }

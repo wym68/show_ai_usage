@@ -16,7 +16,13 @@ Item {
     readonly property real _pillH: Kirigami.Units.gridUnit * 1.4
     readonly property real _gap: Kirigami.Units.smallSpacing
 
-    implicitWidth:  4 * Kirigami.Units.gridUnit * 4 + 3 * _gap
+    // Fixed width of a single provider pill (configurable, in gridUnit
+    // multiples). Total width grows with the number of pills instead of
+    // dividing a fixed total among them.
+    readonly property real _pillW: Kirigami.Units.gridUnit * Math.max(2, Plasmoid.configuration.compactPillWidth || 4)
+
+    readonly property int _count: root._displayProviders.length
+    implicitWidth:  _count > 0 ? _count * _pillW + (_count - 1) * _gap : _pillW
     implicitHeight: _pillH
     clip: true
 
@@ -81,7 +87,7 @@ Item {
     // ── Pills ─────────────────────────────────────────────────
     RowLayout {
         anchors.centerIn: parent
-        width: root.width > 0 ? root.width : root.implicitWidth
+        width: implicitWidth
         height: root._pillH
         spacing: root._gap
         visible: root._displayProviders.length > 0
@@ -94,7 +100,7 @@ Item {
                 readonly property real _val: root._dispVal(_prov)
                 readonly property bool _is7d: root._is7d(_prov)
 
-                Layout.fillWidth: true
+                Layout.preferredWidth: root._pillW
                 Layout.preferredHeight: root._pillH
                 radius: height / 2
                 color: root._color(_val)

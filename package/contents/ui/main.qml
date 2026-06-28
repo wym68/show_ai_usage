@@ -9,9 +9,17 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
-    // Force the panel to allocate enough horizontal space for 4 pills.
-    Layout.minimumWidth: 4 * Kirigami.Units.gridUnit * 3 + 3 * Kirigami.Units.smallSpacing
-    Layout.preferredWidth: 4 * Kirigami.Units.gridUnit * 4 + 3 * Kirigami.Units.smallSpacing
+    // Allocate horizontal space proportional to the number of pills shown:
+    // total width = count * per-pill width + gaps. The per-pill width is the
+    // single knob controlling how big each provider is.
+    readonly property int _compactCount: {
+        var n = _enabledProviderIds.length
+        var max = Math.max(1, Plasmoid.configuration.compactMaxProviders || 4)
+        return Math.max(1, Math.min(n, max))
+    }
+    readonly property int _pillUnits: Math.max(2, Plasmoid.configuration.compactPillWidth || 4)
+    Layout.minimumWidth: _compactCount * Kirigami.Units.gridUnit * (_pillUnits - 1) + (_compactCount - 1) * Kirigami.Units.smallSpacing
+    Layout.preferredWidth: _compactCount * Kirigami.Units.gridUnit * _pillUnits + (_compactCount - 1) * Kirigami.Units.smallSpacing
 
     property var usageData: ({ "providers": [] })
     property string errorMessage: ""
