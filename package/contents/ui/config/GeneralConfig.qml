@@ -8,7 +8,16 @@ KCM.AbstractKCM {
     property alias cfg_refreshInterval: refreshIntervalSpin.value
     property alias cfg_staleThreshold: staleThresholdSpin.value
 
+    QQC2.ScrollView {
+        id: generalScroll
+        anchors.fill: parent
+        clip: true
+        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AsNeeded
+        QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AsNeeded
+
     Kirigami.FormLayout {
+        width: Math.max(implicitWidth, generalScroll.availableWidth)
+
         QQC2.SpinBox {
             id: refreshIntervalSpin
             Kirigami.FormData.label: "界面刷新间隔（秒）:"
@@ -31,5 +40,6 @@ KCM.AbstractKCM {
             color: Kirigami.Theme.disabledTextColor
             wrapMode: Text.WordWrap
         }
+    }
     }
 }

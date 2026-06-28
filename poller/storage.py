@@ -34,7 +34,9 @@ def save_results(results: list[dict[str, object]], data_dir: str | Path | None =
         "providers": results,
     }
     data_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    data_file.chmod(0o644)
+    # Owner-only: the file reveals usage patterns and is read by the plasmoid
+    # running as the same user.
+    data_file.chmod(0o600)
     log.info("Saved %d provider results to %s", len(results), data_file)
 
 

@@ -154,27 +154,36 @@ PlasmoidItem {
 
     // ── Polling config sync ───────────────────────────────────────
 
-    property var _lastPollingConfig: ({ enabled: null, interval: null, providers: null })
+    property var _lastPollingConfig: ({ enabled: null, interval: null, providers: null,
+                                        claude: null, kimi: null, minimax: null })
 
     function _syncPollingConfig() {
         var enabled = Plasmoid.configuration.pollingEnabled || false
         var interval = Plasmoid.configuration.pollingInterval || 300
         var providers = Plasmoid.configuration.enabledProviders || "codex,claude,kimi,minimax"
+        var claude = Plasmoid.configuration.claudeFetchMethod || "browser"
+        var kimi = Plasmoid.configuration.kimiFetchMethod || "direct"
+        var minimax = Plasmoid.configuration.minimaxFetchMethod || "direct"
 
         // Debounce: only sync if something actually changed
         if (_lastPollingConfig.enabled === enabled &&
             _lastPollingConfig.interval === interval &&
-            _lastPollingConfig.providers === providers) {
+            _lastPollingConfig.providers === providers &&
+            _lastPollingConfig.claude === claude &&
+            _lastPollingConfig.kimi === kimi &&
+            _lastPollingConfig.minimax === minimax) {
             return
         }
 
-        _lastPollingConfig = { enabled: enabled, interval: interval, providers: providers }
+        _lastPollingConfig = { enabled: enabled, interval: interval, providers: providers,
+                               claude: claude, kimi: kimi, minimax: minimax }
 
         var scriptUrl = Qt.resolvedUrl("../scripts/sync_config.py").toString()
         var scriptPath = scriptUrl.substring(0, 7) === "file://" ? scriptUrl.substring(7) : scriptUrl
+        var methodArgs = " --claude-method " + claude + " --kimi-method " + kimi + " --minimax-method " + minimax
         var cmd
         if (enabled) {
-            cmd = "python3 " + scriptPath + " --enable --interval " + interval + " --providers " + providers
+            cmd = "python3 " + scriptPath + " --enable --interval " + interval + " --providers " + providers + methodArgs
         } else {
             cmd = "python3 " + scriptPath + " --disable"
         }
@@ -203,10 +212,16 @@ PlasmoidItem {
     property bool _pollingEnabled: Plasmoid.configuration.pollingEnabled || false
     property int _pollingInterval: Plasmoid.configuration.pollingInterval || 300
     property string _enabledProviders: Plasmoid.configuration.enabledProviders || "codex,claude,kimi,minimax"
+    property string _claudeFetchMethod: Plasmoid.configuration.claudeFetchMethod || "browser"
+    property string _kimiFetchMethod: Plasmoid.configuration.kimiFetchMethod || "direct"
+    property string _minimaxFetchMethod: Plasmoid.configuration.minimaxFetchMethod || "direct"
 
     on_PollingEnabledChanged: _syncPollingConfig()
     on_PollingIntervalChanged: _syncPollingConfig()
     on_EnabledProvidersChanged: _syncPollingConfig()
+    on_ClaudeFetchMethodChanged: _syncPollingConfig()
+    on_KimiFetchMethodChanged: _syncPollingConfig()
+    on_MinimaxFetchMethodChanged: _syncPollingConfig()
 
     Component.onCompleted: {
         root.loadUsageData()

@@ -60,6 +60,20 @@
       <label>启用的数据提供商</label>
       <default>codex,claude,kimi,minimax</default>
     </entry>
+    <!-- Per-provider fetch method: "browser" (Playwright login) or "direct" (API token).
+         codex is browser-only and has no entry. -->
+    <entry name="claudeFetchMethod" type="String">
+      <label>Claude 抓取方式</label>
+      <default>browser</default>
+    </entry>
+    <entry name="kimiFetchMethod" type="String">
+      <label>Kimi 抓取方式</label>
+      <default>direct</default>
+    </entry>
+    <entry name="minimaxFetchMethod" type="String">
+      <label>MiniMax 抓取方式</label>
+      <default>direct</default>
+    </entry>
   </group>
 
   <group name="Advanced">

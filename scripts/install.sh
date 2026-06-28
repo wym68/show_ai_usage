@@ -14,12 +14,14 @@ set -euo pipefail
 # ── Parse options ───────────────────────────────────────────────
 NO_TIMER=false
 DRY_RUN=false
+NO_ONBOARD=false
 PROJECT_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --no-timer) NO_TIMER=true; shift ;;
-        --dry-run)  DRY_RUN=true;  shift ;;
+        --no-timer)   NO_TIMER=true;   shift ;;
+        --dry-run)    DRY_RUN=true;    shift ;;
+        --no-onboard) NO_ONBOARD=true; shift ;;
         --prefix)
             if [[ -z "${2:-}" ]]; then echo "✗ --prefix requires a path argument"; exit 1; fi
             PROJECT_DIR="$(realpath "$2")"
@@ -27,7 +29,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "✗ Unknown option: $1"
-            echo "Usage: $0 [--no-timer] [--dry-run] [--prefix <path>] [<project-dir>]"
+            echo "Usage: $0 [--no-timer] [--dry-run] [--no-onboard] [--prefix <path>] [<project-dir>]"
             exit 1
             ;;
         *)
@@ -174,6 +176,19 @@ else
 fi
 echo ""
 
+# ── 3b. Record runtime paths for the widget ────────────────────
+# The installed plasmoid lives separately from this project; persist the
+# project dir + uv path so the config page can launch the poller (login).
+RUNTIME_CONF="$HOME/.config/show-ai-usage/runtime.conf"
+mkdir -p "$(dirname "$RUNTIME_CONF")"
+{
+    echo "PROJECT_DIR=$PROJECT_DIR"
+    echo "UV=$(command -v uv || echo uv)"
+} > "$RUNTIME_CONF"
+chmod 0600 "$RUNTIME_CONF"
+echo "      ✓  Runtime paths recorded ($RUNTIME_CONF)"
+echo ""
+
 # ── 4. Install systemd user units (skip if --no-timer) ─────────
 if [[ "$NO_TIMER" == true ]]; then
     echo "[4/5] Skipping systemd timer installation (--no-timer)"
@@ -237,11 +252,106 @@ fi
 echo "──────────────────────────────────────────────"
 echo ""
 
+# ── Onboarding: per-provider credential setup ──────────────────
+# Two fetch methods exist:
+#   • browser : open the isolated browser and log in (cookies kept in
+#               browser-data/, mode 0700)
+#   • direct  : call the provider API with a token (token kept in
+#               secrets.env, mode 0600)
+run_onboarding() {
+    local POLLER=(uv run --project "$PROJECT_DIR" python -m poller.main)
+
+    echo "── 初始化引导 ──────────────────────────────"
+    echo "  抓取方式："
+    echo "    • 浏览器登录：打开隔离浏览器手动登录（登录态存 browser-data/，权限 0700）"
+    echo "    • 直连 API  ：用 Token 直接调用接口，更快更稳（Token 存 secrets.env，权限 0600）"
+    echo ""
+    echo "  隐私数据存储位置："
+    echo "    登录态: $HOME/.local/share/show-ai-usage/browser-data/"
+    echo "    密钥  : $HOME/.config/show-ai-usage/secrets.env"
+    echo "    配置  : $HOME/.config/show-ai-usage/config.toml"
+    echo "    用量  : $HOME/.local/share/show-ai-usage/data.json"
+    echo ""
+    echo "  密钥只写入 secrets.env，绝不写入 config.toml 或插件配置。"
+    echo "  （可随时跳过，之后在「插件设置 → Data Polling」中配置。）"
+    echo ""
+
+    local claude_method="browser" kimi_method="direct" minimax_method="direct"
+    local ans
+
+    # OpenAI Codex — browser only
+    read -r -p "  为 OpenAI Codex 配置浏览器登录？[Y/n/s跳过] " ans
+    case "${ans:-y}" in
+        [Yy]*) "${POLLER[@]}" --login codex || echo "  ⚠ codex 登录未完成，可稍后重试" ;;
+        *) echo "  - 跳过 codex" ;;
+    esac
+    echo ""
+
+    # Claude — browser (default) or direct (auto-reads ~/.claude/.credentials.json)
+    read -r -p "  Claude 抓取方式？[b]浏览器登录 [d]直连API [s]跳过 (默认 b) " ans
+    case "${ans:-b}" in
+        [Dd]*)
+            claude_method="direct"
+            echo "  Claude 直连默认读取 ~/.claude/.credentials.json。"
+            read -r -p "  另行手动录入 Claude Token？[y/N] " ans
+            [[ "$ans" =~ ^[Yy] ]] && "${POLLER[@]}" --set-token claude
+            ;;
+        [Ss]*) echo "  - 跳过 claude" ;;
+        *) "${POLLER[@]}" --login claude || echo "  ⚠ claude 登录未完成" ;;
+    esac
+    echo ""
+
+    # Kimi — direct (default) or browser
+    read -r -p "  Kimi 抓取方式？[d]直连API [b]浏览器登录 [s]跳过 (默认 d) " ans
+    case "${ans:-d}" in
+        [Bb]*) kimi_method="browser"; "${POLLER[@]}" --login kimi || echo "  ⚠ kimi 登录未完成" ;;
+        [Ss]*) echo "  - 跳过 kimi" ;;
+        *) kimi_method="direct"; "${POLLER[@]}" --set-token kimi || echo "  ⚠ kimi Token 未录入" ;;
+    esac
+    echo ""
+
+    # MiniMax — direct (default; API key or mmx CLI) or browser
+    read -r -p "  MiniMax 抓取方式？[d]直连API [b]浏览器登录 [s]跳过 (默认 d) " ans
+    case "${ans:-d}" in
+        [Bb]*) minimax_method="browser"; "${POLLER[@]}" --login minimax || echo "  ⚠ minimax 登录未完成" ;;
+        [Ss]*) echo "  - 跳过 minimax（如本机已装 mmx CLI，直连可免 Token）" ;;
+        *)
+            minimax_method="direct"
+            echo "  MiniMax 直连可用 API Key；若本机已装 mmx CLI 也可免 Token。"
+            read -r -p "  录入 MiniMax API Key？[Y/n] " ans
+            [[ "${ans:-y}" =~ ^[Yy] ]] && { "${POLLER[@]}" --set-token minimax || echo "  ⚠ minimax Key 未录入"; }
+            ;;
+    esac
+    echo ""
+
+    # Persist chosen methods to config.toml (headless/CLI path). Widget users
+    # can override these in the widget's settings afterwards.
+    if [[ "$NO_TIMER" == false ]]; then
+        python3 "$PROJECT_DIR/package/contents/scripts/sync_config.py" \
+            --enable --interval 300 --providers codex,claude,kimi,minimax \
+            --claude-method "$claude_method" --kimi-method "$kimi_method" \
+            --minimax-method "$minimax_method" >/dev/null \
+            && echo "  ✓ 抓取方式已写入 config.toml"
+    fi
+    echo "──────────────────────────────────────────────"
+    echo ""
+}
+
+if [[ "$DRY_RUN" == false && "$NO_ONBOARD" == false && -t 0 ]]; then
+    run_onboarding
+else
+    echo "ℹ  跳过初始化引导（非交互终端或 --no-onboard）。"
+    echo "   稍后可手动：登录 'uv run python -m poller.main --login <provider>'，"
+    echo "   或录入 Token 'uv run python -m poller.main --set-token <provider>'。"
+    echo ""
+fi
+
 echo "✅  Installation complete!"
 echo ""
 echo "   → Add the widget to your panel: right-click panel → Add Widget → AI Usage Monitor"
-echo "   → Configure polling: right-click widget → Configure → Data Polling"
+echo "   → Configure polling & fetch method: right-click widget → Configure → Data Polling"
 echo "   → Login to providers: uv run python -m poller.main --login <provider>"
+echo "   → Set an API token (stored in secrets.env, 0600): uv run python -m poller.main --set-token <provider>"
 echo "   → Run once: uv run python -m poller.main --oneshot"
 echo "   → View data: uv run python -m poller.main --status"
 echo "   → Edit config manually: $HOME/.config/show-ai-usage/config.toml"

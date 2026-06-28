@@ -6,7 +6,8 @@ Called by the Plasmoid when polling settings change.
 Updates config.toml and manages systemd timer.
 
 Usage:
-    sync_config.py --enable  --interval 300 --providers codex,claude,kimi
+    sync_config.py --enable  --interval 300 --providers codex,claude,kimi \
+                   --claude-method browser --kimi-method direct --minimax-method direct
     sync_config.py --disable
 """
 
@@ -23,6 +24,15 @@ CONFIG_DIR = Path(
 ) / "show-ai-usage"
 
 CONFIG_FILE = CONFIG_DIR / "config.toml"
+SECRETS_FILE = CONFIG_DIR / "secrets.env"
+
+# Provider id -> credential environment variable (mirrors
+# poller.config.SECRET_ENV_BY_PROVIDER). codex has no direct-API credential.
+SECRET_ENV_BY_PROVIDER = {
+    "kimi": "KIMI_CODE_ACCESS_TOKEN",
+    "minimax": "MINIMAX_API_KEY",
+    "claude": "CLAUDE_CODE_ACCESS_TOKEN",
+}
 
 
 # ── Config template ──────────────────────────────────────────────────────
@@ -37,6 +47,12 @@ interval = {interval}
 
 # List of providers to poll.  Available: "codex", "claude", "kimi", "minimax"
 enabled_providers = {providers}
+
+# Per-provider fetch method (managed by the widget's "fetch method" selector).
+# true = direct API path, false = browser (Playwright) path.
+claude_use_direct_fetch = {claude_direct}
+kimi_use_direct_fetch = {kimi_direct}
+minimax_use_direct_fetch = {minimax_direct}
 
 # Logging level: DEBUG, INFO, WARNING, ERROR
 # log_level = "INFO"
@@ -83,19 +99,73 @@ enabled_providers = {providers}
 """
 
 
-def write_config(interval: int, providers: list[str]) -> None:
-    """Write config.toml with the given settings."""
+def write_config(
+    interval: int,
+    providers: list[str],
+    methods: dict[str, str],
+) -> None:
+    """Write config.toml with the given settings.
+
+    ``methods`` maps provider id -> "browser" | "direct"; it is translated
+    into the ``*_use_direct_fetch`` booleans the poller reads.
+    """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     providers_str = "[{}]".format(", ".join(f'"{p}"' for p in providers))
 
+    def _direct(provider: str, default: str) -> str:
+        return "true" if methods.get(provider, default) == "direct" else "false"
+
     content = CONFIG_TEMPLATE.format(
         interval=interval,
         providers=providers_str,
+        claude_direct=_direct("claude", "browser"),
+        kimi_direct=_direct("kimi", "direct"),
+        minimax_direct=_direct("minimax", "direct"),
     )
 
     CONFIG_FILE.write_text(content)
     print(f"Config written to {CONFIG_FILE}")
+
+
+def save_secret(provider: str, token: str) -> int:
+    """Write a provider credential into secrets.env at mode 0600.
+
+    Preserves other entries/comments. Returns a process exit code.
+    The token is never echoed back.
+    """
+    env_var = SECRET_ENV_BY_PROVIDER.get(provider)
+    if env_var is None:
+        print(
+            f"Provider '{provider}' has no direct-API credential "
+            f"(direct providers: {', '.join(sorted(SECRET_ENV_BY_PROVIDER))})",
+            file=sys.stderr,
+        )
+        return 1
+    if not token.strip():
+        print("Empty token — nothing written.", file=sys.stderr)
+        return 1
+
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    lines = SECRETS_FILE.read_text().splitlines() if SECRETS_FILE.exists() else []
+    new_line = f"{env_var}={token.strip()}"
+    replaced = False
+    for i, raw in enumerate(lines):
+        stripped = raw.strip()
+        if stripped.startswith("#") or "=" not in stripped:
+            continue
+        if stripped.split("=", 1)[0].strip() == env_var:
+            lines[i] = new_line
+            replaced = True
+            break
+    if not replaced:
+        lines.append(new_line)
+
+    SECRETS_FILE.write_text("\n".join(lines) + "\n")
+    SECRETS_FILE.chmod(0o600)
+    print(f"Saved {env_var} to {SECRETS_FILE} (mode 0600).")
+    return 0
 
 
 def manage_timer(enable: bool) -> None:
@@ -140,8 +210,17 @@ def main() -> None:
     parser.add_argument("--disable", action="store_true", help="Disable polling")
     parser.add_argument("--interval", type=int, default=300, help="Polling interval in seconds")
     parser.add_argument("--providers", type=str, default="codex,claude,kimi,minimax", help="Comma-separated provider list")
+    parser.add_argument("--claude-method", type=str, default="browser", choices=["browser", "direct"])
+    parser.add_argument("--kimi-method", type=str, default="direct", choices=["browser", "direct"])
+    parser.add_argument("--minimax-method", type=str, default="direct", choices=["browser", "direct"])
+    parser.add_argument("--save-secret", type=str, default=None, metavar="PROVIDER",
+                        help="Write a provider credential into secrets.env (token read from --token).")
+    parser.add_argument("--token", type=str, default=None, help="Token value for --save-secret.")
 
     args = parser.parse_args()
+
+    if args.save_secret:
+        sys.exit(save_secret(args.save_secret, args.token or ""))
 
     if args.disable:
         manage_timer(enable=False)
@@ -149,7 +228,12 @@ def main() -> None:
 
     if args.enable:
         providers = [p.strip() for p in args.providers.split(",") if p.strip()]
-        write_config(interval=args.interval, providers=providers)
+        methods = {
+            "claude": args.claude_method,
+            "kimi": args.kimi_method,
+            "minimax": args.minimax_method,
+        }
+        write_config(interval=args.interval, providers=providers, methods=methods)
         manage_timer(enable=True)
         return
 

@@ -21,6 +21,21 @@ CONFIG_DIR = Path(
 
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
+# Secrets file (env-format ``KEY=value`` lines). This is the single source of
+# truth for provider credentials. It is loaded into the process environment by
+# :func:`load_config` (so manual ``--oneshot`` runs behave like the systemd
+# unit, which loads the same file via ``EnvironmentFile=``). It is never
+# written to ``config.toml`` and must be kept at mode 0600.
+SECRETS_FILE = CONFIG_DIR / "secrets.env"
+
+# Maps a provider id to the environment variable that holds its credential.
+# ``codex`` is intentionally absent — it has no direct-API path.
+SECRET_ENV_BY_PROVIDER: dict[str, str] = {
+    "kimi": "KIMI_CODE_ACCESS_TOKEN",
+    "minimax": "MINIMAX_API_KEY",
+    "claude": "CLAUDE_CODE_ACCESS_TOKEN",
+}
+
 # Default data directory (XDG_DATA_HOME)
 _DATA_DIR_DEFAULT = Path(
     os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share"
@@ -156,6 +171,20 @@ class Config(BaseModel):
             "uses the browser-based fetch path."
         ),
     )
+    kimi_use_direct_fetch: bool = Field(
+        default=True,
+        description=(
+            "If True (default), Kimi uses the direct API fetch path. "
+            "If False, Kimi uses the browser-based fetch path."
+        ),
+    )
+    minimax_use_direct_fetch: bool = Field(
+        default=True,
+        description=(
+            "If True (default), MiniMax uses the direct API/CLI fetch path. "
+            "If False, MiniMax uses the browser-based fetch path."
+        ),
+    )
 
     _REDACTED_FIELDS: ClassVar[Sequence[str]] = (
         "kimi_code_access_token",
@@ -169,6 +198,8 @@ class Config(BaseModel):
         "minimax_api_base_url": "MINIMAX_API_BASE_URL",
         "claude_code_access_token": "CLAUDE_CODE_ACCESS_TOKEN",
         "claude_use_direct_fetch": "CLAUDE_USE_DIRECT_FETCH",
+        "kimi_use_direct_fetch": "KIMI_USE_DIRECT_FETCH",
+        "minimax_use_direct_fetch": "MINIMAX_USE_DIRECT_FETCH",
     }
 
     @model_validator(mode="before")
@@ -199,10 +230,89 @@ class Config(BaseModel):
         return json.dumps(self.redacted_dict(), indent=indent, ensure_ascii=False)
 
 
+# ── Secrets (env-format credential file) ──────────────────────────────────
+
+def _parse_env_file(text: str) -> dict[str, str]:
+    """Parse ``KEY=value`` lines from an env-format file.
+
+    Blank lines and ``#`` comments are ignored. An optional ``export``
+    prefix and surrounding single/double quotes around the value are
+    stripped. Malformed lines (no ``=``) are skipped.
+    """
+    result: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if key:
+            result[key] = value
+    return result
+
+
+def load_secrets_env() -> None:
+    """Load :data:`SECRETS_FILE` into ``os.environ`` (without overriding).
+
+    Existing environment variables always win, so the systemd unit's
+    ``EnvironmentFile=`` and ad-hoc shell exports take precedence. This
+    lets manual ``--oneshot`` runs resolve the same credentials the
+    daemon uses. No-op when the file is absent or unreadable.
+    """
+    try:
+        text = SECRETS_FILE.read_text()
+    except (FileNotFoundError, OSError):
+        return
+    for key, value in _parse_env_file(text).items():
+        os.environ.setdefault(key, value)
+
+
+def write_secret(env_var: str, value: str) -> Path:
+    """Write/update a single ``env_var`` in :data:`SECRETS_FILE` at mode 0600.
+
+    Preserves other entries and comments. Creates the file (and config
+    directory) if necessary. Returns the secrets file path.
+    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    lines: list[str] = []
+    if SECRETS_FILE.exists():
+        lines = SECRETS_FILE.read_text().splitlines()
+
+    new_line = f"{env_var}={value}"
+    replaced = False
+    for i, raw_line in enumerate(lines):
+        stripped = raw_line.strip()
+        if stripped.startswith("#") or "=" not in stripped:
+            continue
+        existing_key = stripped.split("=", 1)[0].strip()
+        if existing_key == env_var:
+            lines[i] = new_line
+            replaced = True
+            break
+    if not replaced:
+        lines.append(new_line)
+
+    SECRETS_FILE.write_text("\n".join(lines) + "\n")
+    SECRETS_FILE.chmod(0o600)
+    return SECRETS_FILE
+
+
 # ── Load / init ──────────────────────────────────────────────────────────
 
 def load_config() -> Config:
     """Load config from the TOML file.  If the file doesn't exist, return defaults."""
+    # Secrets are resolved env-first; make the file's values visible to the
+    # process before any Config() construction reads os.environ.
+    load_secrets_env()
+
     if not CONFIG_FILE.exists():
         return Config()
 

@@ -10,7 +10,16 @@ KCM.AbstractKCM {
     property alias cfg_compactMaxProviders: maxProvidersSpin.value
     property alias cfg_compactPillWidth: pillWidthSpin.value
 
+    QQC2.ScrollView {
+        id: displayScroll
+        anchors.fill: parent
+        clip: true
+        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AsNeeded
+        QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AsNeeded
+
     Kirigami.FormLayout {
+        width: Math.max(implicitWidth, displayScroll.availableWidth)
+
         QQC2.ComboBox {
             id: displayModeCombo
             Kirigami.FormData.label: "显示模式:"
@@ -50,5 +59,6 @@ KCM.AbstractKCM {
             color: Kirigami.Theme.disabledTextColor
             wrapMode: Text.WordWrap
         }
+    }
     }
 }

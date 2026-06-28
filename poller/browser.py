@@ -104,6 +104,11 @@ class ManagedBrowser:
         self._pw = sync_playwright().start()
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        # The profile holds live login cookies/sessions — keep it owner-only.
+        try:
+            self.data_dir.chmod(0o700)
+        except OSError:
+            pass
 
         proxy_arg: Any = {"server": self.proxy} if self.proxy else None
         if self.proxy:

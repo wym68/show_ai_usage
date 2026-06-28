@@ -46,12 +46,39 @@ LOGIN_URLS: dict[str, str] = {
     "minimax": "https://platform.minimaxi.com",
 }
 
+# Per-provider config field that gates the direct-API fetch path.
+_DIRECT_FETCH_FLAGS: dict[str, str] = {
+    "claude":  "claude_use_direct_fetch",
+    "kimi":    "kimi_use_direct_fetch",
+    "minimax": "minimax_use_direct_fetch",
+}
+
 
 def _get_browser_data_dir(config_path: str) -> Path:
     """Resolve the effective browser data directory from config or default."""
     if config_path:
         return Path(config_path).expanduser().resolve()
     return BROWSER_DATA_DIR
+
+
+def _wait_for_browser_close(context, *, max_wait: int = 900) -> None:
+    """Block until the user closes the browser, or ``max_wait`` seconds elapse.
+
+    Used for GUI-launched logins where there is no stdin to wait on. Polls
+    the persistent context's open pages; once they are all closed (the user
+    closed the window) the login state has already been persisted to the
+    profile directory by Chromium.
+    """
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        try:
+            if not context.pages:
+                return
+        except Exception:
+            # Context went away (browser closed) — treat as done.
+            return
+        time.sleep(1.0)
+    log.warning("Login wait timed out after %ds; saving whatever state exists.", max_wait)
 
 
 def _handle_login(config, provider: str = "codex") -> None:
@@ -79,17 +106,61 @@ def _handle_login(config, provider: str = "codex") -> None:
         )
         page.wait_for_timeout(2000)
 
-        print(f"\n╔══════════════════════════════════════════════════════════════╗")
-        print(f"║  Please log in to {display_name.get(provider, provider)} in the browser window.  ║")
-        print(f"║  This profile is completely isolated from your system       ║")
-        print(f"║  browser — nothing is shared.                              ║")
-        print(f"║                                                            ║")
-        print(f"║  Once logged in, come back here and press [Enter] to save.  ║")
-        print(f"╚══════════════════════════════════════════════════════════════╝")
-        input()
+        name = display_name.get(provider, provider)
+        if sys.stdin.isatty():
+            # Interactive terminal: wait for the user to press Enter.
+            print(f"\n╔══════════════════════════════════════════════════════════════╗")
+            print(f"║  Please log in to {name} in the browser window.")
+            print(f"║  This profile is isolated from your system browser.")
+            print(f"║  Once logged in, return here and press [Enter] to save.")
+            print(f"╚══════════════════════════════════════════════════════════════╝")
+            try:
+                input()
+            except (EOFError, KeyboardInterrupt):
+                pass
+        else:
+            # Launched without a terminal (e.g. from the widget): there is no
+            # stdin to read, so wait until the user closes the browser window.
+            log.info(
+                "Please log in to %s in the browser window, then close it to save.",
+                name,
+            )
+            _wait_for_browser_close(context)
 
         page.close()
         log.info("Profile saved. You can now run --oneshot --providers %s.", provider)
+
+
+def _handle_set_token(provider: str) -> None:
+    """Securely prompt for a provider credential and write it to secrets.env.
+
+    The token is read with ``getpass`` (never echoed, never placed on the
+    command line) and stored in ``~/.config/show-ai-usage/secrets.env`` at
+    mode 0600 — the single source of truth for credentials.
+    """
+    import getpass
+
+    from poller.config import SECRET_ENV_BY_PROVIDER, write_secret
+
+    env_var = SECRET_ENV_BY_PROVIDER.get(provider)
+    if env_var is None:
+        log.error(
+            "Provider '%s' has no direct-API credential. Direct-fetch providers: %s",
+            provider, ", ".join(sorted(SECRET_ENV_BY_PROVIDER)),
+        )
+        sys.exit(1)
+
+    try:
+        token = getpass.getpass(f"Paste the {provider} token (input hidden): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if not token:
+        log.error("No token entered — nothing written.")
+        sys.exit(1)
+
+    path = write_secret(env_var, token)
+    print(f"Saved {env_var} to {path} (mode 0600).")
 
 
 def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
@@ -120,8 +191,11 @@ def _poll(provider_names: list[str], config) -> list[dict[str, object]]:
         is_direct_capable = (
             isinstance(provider, DirectFetchProvider) and provider.supports_direct_fetch
         )
-        # Claude defaults to browser scraping unless the user explicitly opts in.
-        if provider.name == "claude" and not config.claude_use_direct_fetch:
+        # Per-provider opt-in gate. Claude defaults to browser scraping;
+        # Kimi/MiniMax default to direct. The widget surfaces these as a
+        # "fetch method" choice and writes the matching *_use_direct_fetch flag.
+        direct_flag = _DIRECT_FETCH_FLAGS.get(provider.name)
+        if direct_flag is not None and not getattr(config, direct_flag):
             is_direct_capable = False
         if not is_direct_capable:
             browser_queue.append((index, provider))
@@ -397,6 +471,14 @@ def cli() -> None:
         help="Specific providers to poll (overrides config file).",
     )
     parser.add_argument(
+        "--set-token",
+        type=str,
+        default=None,
+        metavar="PROVIDER",
+        help="Securely store a direct-API credential in secrets.env (0600). "
+             "Providers: kimi, minimax, claude.",
+    )
+    parser.add_argument(
         "--init-config",
         action="store_true",
         help="Write a default config.toml with comments and exit.",
@@ -414,6 +496,11 @@ def cli() -> None:
         path = init_default_config()
         print(f"Default config written to:\n  {path}\n")
         print("Edit it to customise providers, interval, etc.")
+        return
+
+    if args.set_token:
+        setup_logging("INFO")
+        _handle_set_token(args.set_token)
         return
 
     # ── Load config & merge CLI overrides ─────────────────────────
